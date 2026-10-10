@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "generated_at_utc": "2026-10-08T15:53:54.864738+00:00",
+    "features": [
+      "late_night",
+      "work_duration"
+    ],
+    "min_sessions_per_user": 5,
+    "shrinkage_k0": 10.0,
+    "min_users_per_band_to_use": 30
+  },
+  "bands": {
+    "<18": {
+      "n_users": 1,
+      "means": {
+        "late_night": 0.16290068313189696,
+        "work_duration": 1.4927358556664914
+      }
+    },
+    "18-25": {
+      "n_users": 1,
+      "means": {
+        "late_night": 0.19548081975827633,
+        "work_duration": 1.3500830267997896
+      }
+    }
+  }
+}

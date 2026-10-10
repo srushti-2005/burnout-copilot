@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+venv/
+__pycache__/
+node_modules/
+dist/
+.output/
+.vercel/
+.expo/
+*.7z
+*.log
+*creds*.json
+login.json
+session.json

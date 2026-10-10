@@ -1,0 +1,815 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * MindEase design system. Dark cosmic theme is the default (html.dark); light is the pearl variant.
+ * All colours stay in oklch. Existing token names (clay-*, risk-*, shadcn tokens) are kept so every
+ * component re-themes without edits.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-clay-purple: var(--clay-purple);
+  --color-clay-coral: var(--clay-coral);
+  --color-clay-teal: var(--clay-teal);
+  --color-clay-yellow: var(--clay-yellow);
+  --color-clay-green: var(--clay-green);
+  --color-clay-pink: var(--clay-pink);
+  --color-clay-shadow: var(--clay-shadow);
+  --color-risk-low: var(--risk-low);
+  --color-risk-mid: var(--risk-mid);
+  --color-risk-high: var(--risk-high);
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---------------- LIGHT (pearl) ---------------- */
+:root {
+  color-scheme: light;
+  --radius: 1rem;
+
+  --background: oklch(0.975 0.012 290);
+  --foreground: oklch(0.24 0.04 285);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.04 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.04 285);
+  --primary: oklch(0.62 0.17 288);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.953 0.021 285);
+  --secondary-foreground: oklch(0.24 0.04 285);
+  --muted: oklch(0.955 0.02 290);
+  --muted-foreground: oklch(0.5 0.045 285);
+  --accent: oklch(0.935 0.03 288);
+  --accent-foreground: oklch(0.24 0.04 285);
+  --destructive: oklch(0.62 0.19 22);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.55 0.08 285 / 0.14);
+  --input: oklch(0.55 0.08 285 / 0.18);
+  --ring: oklch(0.62 0.17 288);
+
+  --clay-purple: oklch(0.62 0.17 288);
+  --clay-coral: oklch(0.66 0.18 22);
+  --clay-teal: oklch(0.7 0.11 188);
+  --clay-yellow: oklch(0.82 0.14 90);
+  --clay-green: oklch(0.74 0.15 155);
+  --clay-pink: oklch(0.68 0.19 350);
+  --clay-shadow: oklch(0.55 0.08 285 / 0.25);
+  --risk-low: oklch(0.7 0.15 162);
+  --risk-mid: oklch(0.76 0.14 60);
+  --risk-high: oklch(0.63 0.19 28);
+
+  --chart-1: oklch(0.62 0.17 288);
+  --chart-2: oklch(0.7 0.11 188);
+  --chart-3: oklch(0.66 0.18 22);
+  --chart-4: oklch(0.82 0.14 90);
+  --chart-5: oklch(0.68 0.19 350);
+
+  --sidebar: oklch(1 0 0 / 0.7);
+  --sidebar-foreground: oklch(0.24 0.04 285);
+  --sidebar-primary: oklch(0.62 0.17 288);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.955 0.02 290);
+  --sidebar-accent-foreground: oklch(0.24 0.04 285);
+  --sidebar-border: oklch(0.55 0.08 285 / 0.14);
+  --sidebar-ring: oklch(0.62 0.17 288);
+
+  /* MindEase extras */
+  --page-from: oklch(0.978 0.012 290);
+  --page-to: oklch(0.94 0.028 285);
+  --glass-bg: oklch(1 0 0 / 0.72);
+  --glass-border: oklch(0.55 0.08 285 / 0.14);
+  --glass-shadow: 0 8px 28px -12px oklch(0.55 0.08 285 / 0.28);
+  --glow-opacity: 0.3;
+
+  --glow-green: oklch(0.78 0.16 160);
+  --glow-red: oklch(0.72 0.17 20);
+  --glow-violet: oklch(0.7 0.16 290);
+
+  --me-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --me-dur: 400ms;
+  --me-dur-slow: 700ms;
+}
+
+/* ---------------- DARK (cosmic, default) ---------------- */
+.dark {
+  color-scheme: dark;
+
+  --background: oklch(0.14 0.03 290);
+  --foreground: oklch(0.98 0.003 250);
+  --card: oklch(0.2 0.045 285);
+  --card-foreground: oklch(0.98 0.003 250);
+  --popover: oklch(0.2 0.045 285);
+  --popover-foreground: oklch(0.98 0.003 250);
+  --primary: oklch(0.74 0.14 290);
+  --primary-foreground: oklch(0.16 0.03 285);
+  --secondary: oklch(1 0 0 / 0.08);
+  --secondary-foreground: oklch(0.98 0.003 250);
+  --muted: oklch(1 0 0 / 0.07);
+  --muted-foreground: oklch(0.78 0.035 300);
+  --accent: oklch(1 0 0 / 0.09);
+  --accent-foreground: oklch(0.98 0.003 250);
+  --destructive: oklch(0.7 0.17 22);
+  --destructive-foreground: oklch(0.98 0.003 250);
+  --border: oklch(1 0 0 / 0.08);
+  --input: oklch(1 0 0 / 0.12);
+  --ring: oklch(0.74 0.14 290);
+
+  --clay-purple: oklch(0.74 0.14 290);
+  --clay-coral: oklch(0.72 0.15 22);
+  --clay-teal: oklch(0.78 0.11 185);
+  --clay-yellow: oklch(0.85 0.12 90);
+  --clay-green: oklch(0.82 0.14 155);
+  --clay-pink: oklch(0.76 0.15 340);
+  --clay-shadow: oklch(0 0 0 / 0.35);
+  --risk-low: oklch(0.78 0.14 160);
+  --risk-mid: oklch(0.8 0.13 70);
+  --risk-high: oklch(0.7 0.17 25);
+
+  --chart-1: oklch(0.74 0.14 290);
+  --chart-2: oklch(0.78 0.11 185);
+  --chart-3: oklch(0.72 0.15 22);
+  --chart-4: oklch(0.85 0.12 90);
+  --chart-5: oklch(0.76 0.15 340);
+
+  --sidebar: oklch(1 0 0 / 0.04);
+  --sidebar-foreground: oklch(0.98 0.003 250);
+  --sidebar-primary: oklch(0.74 0.14 290);
+  --sidebar-primary-foreground: oklch(0.16 0.03 285);
+  --sidebar-accent: oklch(1 0 0 / 0.09);
+  --sidebar-accent-foreground: oklch(0.98 0.003 250);
+  --sidebar-border: oklch(1 0 0 / 0.08);
+  --sidebar-ring: oklch(0.74 0.14 290);
+
+  --page-from: oklch(0.135 0.03 290); /* ~#0B0914 */
+  --page-to: oklch(0.19 0.04 285); /* ~#151226 */
+  --glass-bg: oklch(1 0 0 / 0.045);
+  --glass-border: oklch(1 0 0 / 0.09);
+  --glass-shadow: 0 8px 32px oklch(0 0 0 / 0.35);
+  --glow-opacity: 0.22;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--page-from);
+    background-image: linear-gradient(160deg, var(--page-from) 0%, var(--page-to) 100%);
+    background-attachment: fixed;
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    transition:
+      background-color var(--me-dur-slow) var(--me-ease),
+      color var(--me-dur-slow) var(--me-ease);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Frosted glass card floating on the live background. The blur lives on a pseudo-element on purpose:
+   backdrop-filter on the card itself would trap position:fixed children (like the break popup)
+   inside the card. */
+@utility clay-card {
+  position: relative;
+  isolation: isolate;
+  border-radius: calc(var(--radius) + 8px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    pointer-events: none;
+    transition: background var(--me-dur) var(--me-ease);
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* =========================================================
+   LIVE BACKGROUND (components/mindease/LiveBackground.tsx)
+   Light on purpose: low opacity glows + small twinkling stars.
+   ========================================================= */
+.me-live {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.me-live__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: var(--glow-opacity);
+  will-change: transform;
+  transition: opacity var(--me-dur-slow) var(--me-ease);
+}
+.me-live__blob--green {
+  width: 48vmax;
+  height: 48vmax;
+  left: -14%;
+  bottom: -20%;
+  background: radial-gradient(circle, var(--glow-green), transparent 68%);
+  animation: me-drift-a 38s ease-in-out infinite alternate;
+}
+.me-live__blob--red {
+  width: 42vmax;
+  height: 42vmax;
+  right: -12%;
+  top: -16%;
+  background: radial-gradient(circle, var(--glow-red), transparent 68%);
+  animation: me-drift-b 44s ease-in-out infinite alternate;
+}
+.me-live__blob--violet {
+  width: 54vmax;
+  height: 54vmax;
+  left: 28%;
+  top: 22%;
+  background: radial-gradient(circle, var(--glow-violet), transparent 68%);
+  opacity: calc(var(--glow-opacity) * 0.9);
+  animation: me-drift-c 50s ease-in-out infinite alternate;
+}
+.me-live__aurora {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  top: 34%;
+  height: 38vmax;
+  filter: blur(60px);
+  opacity: calc(var(--glow-opacity) * 0.8);
+  background: linear-gradient(100deg, transparent 5%, var(--glow-violet) 28%, var(--glow-green) 52%, var(--glow-red) 76%, transparent 95%);
+  -webkit-mask-image: radial-gradient(60% 50% at 50% 50%, #000, transparent 80%);
+  mask-image: radial-gradient(60% 50% at 50% 50%, #000, transparent 80%);
+  will-change: transform;
+  animation: me-aurora 30s ease-in-out infinite alternate;
+}
+.me-live__stars {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.7;
+  transition: opacity var(--me-dur-slow) var(--me-ease);
+}
+:root:not(.dark) .me-live__stars {
+  opacity: 0;
+}
+
+@keyframes me-drift-a {
+  to { transform: translate3d(9vmax, -7vmax, 0) scale(1.1); }
+}
+@keyframes me-drift-b {
+  to { transform: translate3d(-8vmax, 9vmax, 0) scale(1.12); }
+}
+@keyframes me-drift-c {
+  to { transform: translate3d(-7vmax, -6vmax, 0) scale(0.94); }
+}
+@keyframes me-aurora {
+  from { transform: translate3d(-6%, -4%, 0) rotate(-6deg) scaleY(0.9); }
+  to { transform: translate3d(6%, 5%, 0) rotate(5deg) scaleY(1.15); }
+}
+
+/* =========================================================
+   CALM MOTION
+   ========================================================= */
+/* Overrides the quick duration-200 utilities used across the existing components. */
+button,
+a,
+[role="button"] {
+  transition-duration: 400ms !important;
+  transition-timing-function: var(--me-ease) !important;
+}
+
+/* fill-mode "backwards" + end state transform:none, so no leftover transform traps fixed children. */
+@keyframes me-fade-scale {
+  from { opacity: 0; transform: scale(0.98) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes me-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.me-page-enter { animation: me-fade-scale var(--me-dur-slow) var(--me-ease) backwards; }
+.me-card-enter {
+  animation: me-fade-scale var(--me-dur-slow) var(--me-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+.me-modal-in { animation: me-fade-scale var(--me-dur) var(--me-ease) backwards; }
+.me-backdrop-in { animation: me-fade var(--me-dur) var(--me-ease) backwards; }
+.me-fade-in { animation: me-fade 900ms var(--me-ease) backwards; }
+
+.ui-pop-on-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 700ms var(--me-ease), transform 700ms var(--me-ease);
+}
+.ui-pop-on-reveal.is-visible { opacity: 1; transform: none; }
+.ui-pop-card { animation: me-fade-scale var(--me-dur-slow) var(--me-ease) backwards; }
+
+/* ---------- Brand mark ---------- */
+.me-mark {
+  background: linear-gradient(135deg, var(--clay-purple), var(--clay-pink));
+  box-shadow: 0 0 18px color-mix(in oklab, var(--clay-purple) 55%, transparent);
+}
+
+/* =========================================================
+   INTRO SPLASH (shown once after login)
+   Always dark/cosmic, whatever the theme.
+   ========================================================= */
+.me-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  cursor: pointer;
+  color: #f8f9fa;
+  background: radial-gradient(70% 60% at 50% 45%, #1d1838 0%, #0b0914 72%);
+  transition: opacity 700ms var(--me-ease), visibility 700ms;
+}
+.me-splash--out { opacity: 0; visibility: hidden; pointer-events: none; }
+.me-splash__stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.9; }
+.me-splash__halo {
+  position: absolute;
+  width: min(70vmin, 560px);
+  height: min(70vmin, 560px);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(139, 124, 246, 0.35), rgba(74, 222, 154, 0.08) 45%, transparent 70%);
+  filter: blur(30px);
+  animation: me-halo 4s ease-in-out infinite;
+}
+@keyframes me-halo {
+  0%, 100% { transform: scale(0.92); opacity: 0.6; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+.me-splash__center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1.1rem; }
+.me-splash__word {
+  display: flex;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2.8rem, 9vw, 5.5rem);
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 28px rgba(179, 168, 255, 0.45);
+  animation: me-glitch 1.1s steps(1, end) 1.7s 1;
+}
+.me-splash__letter {
+  display: inline-block;
+  opacity: 0;
+  filter: blur(10px);
+  transform: translateY(10px) scale(0.96);
+  animation: me-letter-in 900ms var(--me-ease) forwards;
+  animation-delay: calc(300ms + var(--i, 0) * 110ms);
+}
+@keyframes me-letter-in {
+  to { opacity: 1; filter: blur(0); transform: none; }
+}
+@keyframes me-glitch {
+  0% { text-shadow: -3px 0 #4ade9a, 3px 0 #ff6b7a; transform: translateX(-2px); }
+  20% { text-shadow: 3px 0 #4ade9a, -3px 0 #ff6b7a; transform: translateX(2px); }
+  40% { text-shadow: -2px 0 #4ade9a, 2px 0 #ff6b7a; transform: translateX(0); }
+  60% { text-shadow: 4px 0 #4ade9a, -4px 0 #ff6b7a; transform: translateX(-1px); }
+  80% { text-shadow: -1px 0 #4ade9a, 1px 0 #ff6b7a; transform: translateX(1px); }
+  100% { text-shadow: 0 0 28px rgba(179, 168, 255, 0.45); transform: none; }
+}
+.me-splash__tag {
+  margin: 0;
+  color: #b8b2cb;
+  font-size: 0.8rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: me-fade 900ms var(--me-ease) 1.5s forwards;
+}
+.me-splash__skip {
+  position: absolute;
+  bottom: 2rem;
+  margin: 0;
+  color: #b8b2cb;
+  font-size: 0.75rem;
+  opacity: 0;
+  animation: me-fade 900ms var(--me-ease) 1s forwards;
+}
+
+/* =========================================================
+   THEME TOGGLE ("Light [switch] Dark")
+   ========================================================= */
+.me-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.me-theme > span[data-active="true"] { color: var(--foreground); font-weight: 600; }
+
+.me-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 68px;
+  height: 34px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  cursor: pointer;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--muted-foreground);
+}
+.me-toggle:focus-visible,
+.me-star:focus-visible {
+  outline: 2px solid var(--clay-purple);
+  outline-offset: 3px;
+}
+.me-toggle svg { width: 16px; height: 16px; position: relative; z-index: 1; }
+.me-toggle__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--clay-purple), var(--clay-pink));
+  box-shadow: 0 0 14px color-mix(in oklab, var(--clay-purple) 60%, transparent);
+  transition: transform var(--me-dur) var(--me-ease);
+}
+.me-toggle[aria-checked="true"] .me-toggle__thumb { transform: translateX(34px); }
+.me-toggle[aria-checked="false"] .me-sun,
+.me-toggle[aria-checked="true"] .me-moon { color: #fff; }
+
+/* =========================================================
+   CELESTIAL CO-PILOT STAR
+   ========================================================= */
+.me-star {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 70;
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  color: #fff;
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--clay-purple) 55%, transparent), oklch(0.2 0.045 285 / 0.9) 72%);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 24px color-mix(in oklab, var(--clay-purple) 55%, transparent), inset 0 0 12px oklch(1 0 0 / 0.1);
+  transition: transform var(--me-dur) var(--me-ease), box-shadow var(--me-dur) var(--me-ease);
+}
+.me-star:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 36px color-mix(in oklab, var(--clay-purple) 80%, transparent), inset 0 0 14px oklch(1 0 0 / 0.14);
+}
+.me-star__aura {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--clay-purple) 60%, transparent) 0%, transparent 68%);
+  animation: me-aura 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+.me-star__icon {
+  position: relative;
+  width: 62%;
+  height: 62%;
+  overflow: visible;
+  filter: drop-shadow(0 0 6px oklch(1 0 0 / 0.7));
+  animation: me-breathe 6s ease-in-out infinite;
+}
+.me-star__dot {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px #fff;
+  opacity: 0;
+  pointer-events: none;
+  animation: me-twinkle 3.6s ease-in-out infinite;
+}
+.me-star__dot:nth-of-type(1) { top: -6px; left: 52%; animation-delay: 0s; }
+.me-star__dot:nth-of-type(2) { top: 18%; right: -8px; animation-delay: 0.9s; }
+.me-star__dot:nth-of-type(3) { bottom: -4px; left: 22%; animation-delay: 1.8s; }
+.me-star__dot:nth-of-type(4) { top: 40%; left: -8px; animation-delay: 2.6s; }
+.me-star__alert {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--clay-coral);
+  border: 2px solid var(--card);
+}
+@keyframes me-aura {
+  0%, 100% { opacity: 0.35; transform: scale(0.92); }
+  50% { opacity: 0.85; transform: scale(1.12); }
+}
+@keyframes me-breathe {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.06) rotate(6deg); }
+}
+@keyframes me-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.4); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* =========================================================
+   CO-PILOT CHAT PANEL (plain CSS, rendered in a portal on <body>)
+   ========================================================= */
+.me-chat {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 6.5rem;
+  z-index: 70;
+  width: min(380px, calc(100vw - 2.5rem));
+  height: min(520px, calc(100vh - 9rem));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  border: 1px solid var(--glass-border);
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--card) 90%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--glass-shadow), 0 20px 60px oklch(0 0 0 / 0.25);
+  transform-origin: bottom right;
+}
+.me-chat__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--glass-border);
+  background: color-mix(in oklab, var(--clay-purple) 14%, transparent);
+}
+.me-chat__title { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 1rem; }
+.me-chat__sub { margin: 0; font-size: 0.75rem; color: var(--muted-foreground); }
+.me-chat__close {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.me-chat__close:hover { background: var(--muted); }
+.me-chat__msgs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  overflow-y: auto;
+}
+.me-chat__msg { max-width: 88%; }
+.me-chat__msg--user { align-self: flex-end; }
+.me-chat__msg--bot { align-self: flex-start; }
+.me-chat__bubble {
+  white-space: pre-line;
+  border-radius: 1rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: var(--muted);
+}
+.me-chat__msg--user .me-chat__bubble { background: var(--clay-purple); color: var(--primary-foreground); }
+.me-chat__acts { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.375rem; }
+.me-chip {
+  border-radius: 999px;
+  border: 1px solid var(--clay-purple);
+  background: transparent;
+  color: var(--clay-purple);
+  padding: 0.25rem 0.75rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.me-chip:hover { background: color-mix(in oklab, var(--clay-purple) 14%, transparent); }
+.me-chat__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  max-height: 6rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--glass-border);
+}
+.me-chat__quick button {
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: inherit;
+  padding: 0.25rem 0.65rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.me-chat__quick button:hover { background: var(--muted); }
+.me-chat__input { display: flex; gap: 0.5rem; padding: 0.75rem; padding-top: 0.25rem; }
+.me-chat__input input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 1rem;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: inherit;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  font-size: 0.875rem;
+  outline: none;
+}
+.me-chat__input input::placeholder { color: var(--muted-foreground); }
+.me-chat__input input:focus { border-color: var(--clay-purple); }
+.me-chat__send {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0;
+  border-radius: 1rem;
+  background: var(--clay-purple);
+  color: var(--primary-foreground);
+  cursor: pointer;
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .ui-pop-on-reveal { opacity: 1; transform: none; }
+}
+
+/* ───── MindEase round 3: paste at the very END of ui/src/styles.css ───── */
+
+/* Light mode: make the live background clearly visible (was ~0.3). Raise to 0.6 for stronger, lower for subtler. */
+:root[data-theme="light"] {
+  --glow-opacity: 0.5;
+}
+
+/* Reports -> Print: only the selected week prints, on white paper with dark text. */
+
+
+/* ===== MindEase print layout (Reports) =====
+   Prints only the Reports title, the Weeks card and the selected week card,
+   on white, like the reference. Uses display:none (not visibility) so there is no blank space. */
+.me-print-only { display: none; }
+
+/* ===== MindEase print layout (Reports) =====
+   Prints only the Reports title, the Weeks card and the selected week card,
+   on white, like the reference. Uses display:none (not visibility) so there is no blank space. */
+.me-print-only { display: none; }
+
+
+/* ===== MindEase print layout (Reports) =====
+   Prints only the Reports title, the Weeks card and the selected week card,
+   on white, like the reference. Uses display:none (not visibility) so there is no blank space. */
+.me-print-only { display: none; }
+
+@media print {
+  @page { size: A4 portrait; margin: 14mm; }
+
+  html, body {
+    background: #fff !important;
+    color: #111 !important;
+    min-height: 0 !important;
+    display: block !important;
+  }
+  body::before, body::after { display: none !important; }
+
+  /* remove everything that is not the report or on the path to it */
+  body *:not(.me-print-root):not(.me-print-root *):not(:has(.me-print-root)) {
+    display: none !important;
+  }
+
+  /* neutralise the wrappers that lead to the report */
+  body :has(.me-print-root):not(.me-print-root) {
+    display: block !important;
+    position: static !important;
+    background: none !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    width: auto !important;
+    overflow: visible !important;
+    transform: none !important;
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .me-print-root { display: block !important; width: 100% !important; }
+  .me-print-root > * { margin: 0 0 16px !important; }
+  .me-print-root .me-print-only { display: block !important; }
+
+  .me-print-root,
+  .me-print-root * {
+    color: #111 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    animation: none !important;
+  }
+  .me-print-root .text-muted-foreground { color: #555 !important; }
+  .me-print-root [aria-current="true"] { color: #3b34a8 !important; background: transparent !important; }
+  .me-print-root .bg-muted\/50 { background: transparent !important; }
+
+  .me-print-root .clay-card {
+    background: #fff !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border: 1px solid #e5e5ea !important;
+    border-radius: 24px !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+}
+
+
+
