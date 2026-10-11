@@ -6,7 +6,8 @@ import { toast } from "sonner";
 
 import { loginUser, resetPassword, signupUser } from "@/lib/dashboard.functions";
 import type { AuthResult } from "@/lib/dashboard.types";
-import { connectAgent } from "@/lib/agent";
+import { connectAgent, agentStatus } from "@/lib/agent";
+import { triggerAgentDownload } from "@/lib/download";
 import { MindEaseMark } from "@/components/mindease/MindEaseLogo";
 import { ThemeToggle } from "@/components/mindease/ThemeToggle";
 
@@ -28,29 +29,6 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
-/**
- * Hand this login to the MindEase PC agent (if it is installed on this computer)
- * so tracking starts for THIS user. Deliberately not awaited by the caller: the
- * first call can take up to a minute while the free server wakes up.
- */
-function startPcTracking(accessToken: string, refreshToken: string): void {
-  void connectAgent(accessToken, refreshToken).then((res) => {
-    if (res.ok) {
-      toast.success("PC tracking is on for this account.");
-      return;
-    }
-    if (res.error === "agent not reachable" && /Windows/i.test(navigator.userAgent)) {
-      toast.info("Install the MindEase PC agent to track on this computer.", {
-        duration: 20000,
-        action: {
-          label: "Download",
-          onClick: () => window.open("/downloads/MindEaseAgent.exe", "_blank"),
-        },
-      });
-    }
-  });
-}
-
 function LoginPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"login" | "signup">("login");
@@ -66,17 +44,39 @@ function LoginPage() {
   const doSignup = useServerFn(signupUser);
   const doReset = useServerFn(resetPassword);
 
-  const finish = (r: AuthResult) => {
+  const finish = async (r: AuthResult) => {
     if (r.success && r.uid && r.access_token) {
       localStorage.setItem("bc_uid", r.uid);
       localStorage.setItem("bc_token", r.access_token);
       try {
-        sessionStorage.setItem("me_splash", "1"); // plays the MindEase intro once after login
+        sessionStorage.setItem("me_splash", "1");
       } catch {
         /* ignore */
       }
-      // The refresh token is only passed on to the PC agent. It is never stored by the website.
-      if (r.refresh_token) startPcTracking(r.access_token, r.refresh_token);
+
+      const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+
+      // Attempt to check agent status and connect or trigger auto-download on Windows
+      try {
+        const st = await agentStatus();
+        if (st.installed) {
+          const res = await connectAgent(r.access_token, r.refresh_token);
+          if (res.ok) {
+            toast.success("PC tracking is active for your account.");
+          }
+        } else if (isWindows) {
+          triggerAgentDownload();
+          toast.info(
+            "MindEase PC Agent is downloading! Double-click MindEaseAgent.exe in your Downloads folder to enable session tracking.",
+            { duration: 9000 },
+          );
+        }
+      } catch {
+        if (isWindows) {
+          triggerAgentDownload();
+        }
+      }
+
       void navigate({ to: "/" });
       return;
     }
@@ -104,7 +104,7 @@ function LoginPage() {
     setBusy(true);
     try {
       if (tab === "login") {
-        finish(await doLogin({ data: { email: email.trim(), password } }));
+        await finish(await doLogin({ data: { email: email.trim(), password } }));
       } else {
         if (!name) {
           toast.error("Fill in all fields.");
@@ -123,7 +123,7 @@ function LoginPage() {
           toast.error("Password must be at least 6 characters.");
           return;
         }
-        finish(
+        await finish(
           await doSignup({
             data: { email: email.trim(), password, name: name.trim(), age: ageNum },
           }),

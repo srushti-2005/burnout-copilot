@@ -38,21 +38,29 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import request as urlrequest, error as urlerror
+from urllib.parse import urlparse
 
 # ───────────────────────── CONFIG: edit these two before building ─────────────────────────
-API_URL = os.environ.get("MINDEASE_API_URL", "https://YOUR-SERVICE.onrender.com").rstrip("/")
+API_URL = os.environ.get("MINDEASE_API_URL", "https://burnout-copilot.onrender.com").rstrip("/")
 ALLOWED_ORIGINS = {
     o.strip().rstrip("/")
     for o in os.environ.get(
-        "MINDEASE_ORIGINS", "https://burnout-copilot-git-main-srushtiii2005-1873s-projects.vercel.app/,http://localhost:3000"
+        "MINDEASE_ORIGINS",
+        "https://burnout-copilot.vercel.app,https://burnout-copilot-git-main-srushtiii2005-1873s-projects.vercel.app,http://localhost:3000,http://localhost:5173",
     ).split(",")
     if o.strip()
 }
+SUPABASE_URL = "https://yljtzzqbztuxjnztautv.supabase.co"
+SUPABASE_ANON_KEY = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsanR6enFienR1"
+    "eGpuenRhdXR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxNjMwMjksImV4cCI6MjEwMTczOTAyOX0."
+    "_dGYLLrYeHmR7JepcCI-z-h9L07cASEcwMSXDAu0GPc"
+)
 # ───────────────────────────────────────────────────────────────────────────────────────────
 
 PORT = 47821
 VERSION = "1.0.0"
-DEFAULT_INTERVAL_MINUTES = 60   # one session per hour, as tracker.py's docstring describes
+DEFAULT_INTERVAL_MINUTES = 2.0   # 2 minutes for testing sessions quickly; override with --interval-minutes 60
 WATCHDOG_SECONDS = 30
 EXE_NAME = "MindEaseAgent.exe"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -76,7 +84,13 @@ log = logging.getLogger("mindease_agent")
 try:
     import tracker  # copied next to this file when building the exe
 except ImportError:
-    from src.data import tracker  # running from the backend folder in development
+    _backend_dir = Path(__file__).resolve().parent.parent / "backend"
+    if str(_backend_dir) not in sys.path:
+        sys.path.insert(0, str(_backend_dir))
+    try:
+        from src.data import tracker  # running from the backend folder in development
+    except ImportError:
+        import tracker
 
 
 # ───────────────────────── small helpers ─────────────────────────
@@ -88,16 +102,20 @@ def _popup(text: str, title: str = "MindEase") -> None:
         print(text)
 
 
-def _jwt_exp(token: str) -> int:
+def _jwt_payload(token: str) -> dict:
     try:
         part = token.split(".")[1]
         part += "=" * (-len(part) % 4)
-        return int(json.loads(base64.urlsafe_b64decode(part))["exp"])
+        return json.loads(base64.urlsafe_b64decode(part))
     except Exception:
-        return 0
+        return {}
 
 
-def _http(method: str, path: str, body=None, token: str | None = None, timeout: int = 90):
+def _jwt_exp(token: str) -> int:
+    return int(_jwt_payload(token).get("exp", 0))
+
+
+def _http(method: str, path: str, body=None, token: str | None = None, timeout: int = 40):
     """Returns (status, parsed_json_or_None). Raises only on network failure."""
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urlrequest.Request(API_URL + path, data=data, method=method)
@@ -110,6 +128,9 @@ def _http(method: str, path: str, body=None, token: str | None = None, timeout: 
             raw, status = r.read(), r.status
     except urlerror.HTTPError as e:
         raw, status = e.read(), e.code
+    except Exception as e:
+        log.warning(f"HTTP {method} {path} failed: {e}")
+        return 0, None
     try:
         parsed = json.loads(raw)
     except Exception:
@@ -126,7 +147,7 @@ def _load_state() -> None:
     global _state
     try:
         _state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        if not (_state.get("uid") and _state.get("refresh_token")):
+        if not (_state.get("uid") and _state.get("access_token")):
             _state = {}
     except FileNotFoundError:
         _state = {}
@@ -165,28 +186,59 @@ def _clear_state() -> None:
 
 
 def _refresh_locked() -> None:
-    """Swap the refresh token for fresh tokens via the API. Caller holds _lock."""
-    status, out = _http("POST", "/auth/refresh", {"refresh_token": _state["refresh_token"]})
-    if status == 200 and out and out.get("success"):
+    """Swap the refresh token for fresh tokens via the API or directly via Supabase. Caller holds _lock."""
+    rt = _state.get("refresh_token")
+    if not rt:
+        return
+
+    # 1. Try backend API /auth/refresh
+    status, out = _http("POST", "/auth/refresh", {"refresh_token": rt})
+    if status == 200 and out and out.get("success") and out.get("access_token"):
         _state["access_token"] = out["access_token"]
-        _state["refresh_token"] = out["refresh_token"]
+        if out.get("refresh_token"):
+            _state["refresh_token"] = out["refresh_token"]
         _save_state()
         return
-    if status in (200, 400, 401, 403, 422):
-        # The server understood us and said the session is no longer valid.
+
+    # 2. If backend returns 404/500 or is sleeping, refresh directly via Supabase Auth
+    try:
+        url = f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token"
+        req = urlrequest.Request(
+            url,
+            data=json.dumps({"refresh_token": rt}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY},
+            method="POST",
+        )
+        with urlrequest.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read())
+            if data.get("access_token"):
+                _state["access_token"] = data["access_token"]
+                if data.get("refresh_token"):
+                    _state["refresh_token"] = data["refresh_token"]
+                _save_state()
+                log.info("Refreshed tokens directly with Supabase")
+                return
+    except Exception as e:
+        log.warning(f"Direct Supabase token refresh failed: {e}")
+
+    if status in (400, 401, 403, 422):
         log.warning("session no longer valid; signing out of the agent")
         _clear_state()
         raise RuntimeError("signed out: session expired")
-    raise RuntimeError(f"temporary API problem ({status}); will retry")  # e.g. Render waking up
+    raise RuntimeError(f"temporary API problem ({status}); will retry")
 
 
 def _get_token(force: bool = False) -> str:
     with _lock:
-        if not _state.get("refresh_token"):
-            raise RuntimeError("not signed in")
         tok = _state.get("access_token")
-        if force or not tok or _jwt_exp(tok) - time.time() < 120:
-            _refresh_locked()
+        if not tok:
+            raise RuntimeError("not signed in")
+        if force or _jwt_exp(tok) - time.time() < 120:
+            if _state.get("refresh_token"):
+                try:
+                    _refresh_locked()
+                except Exception as e:
+                    log.warning(f"refresh attempt: {e}")
         return _state["access_token"]
 
 
@@ -206,8 +258,9 @@ def save_via_api(uid: str, data: dict):
     status, out = _http("POST", "/sessions", payload, token=_get_token())
     if status == 401:
         status, out = _http("POST", "/sessions", payload, token=_get_token(force=True))
-    if status >= 300:
+    if status >= 300 or status == 0:
         raise RuntimeError(f"API returned {status} while saving session")
+    log.info(f"Session saved successfully: {out.get('id') if isinstance(out, dict) else out}")
     return out
 
 
@@ -220,23 +273,52 @@ def ensure_tracking() -> None:
         log.info(f"tracking started for {_state.get('email')}")
 
 
-def apply_login(access_token: str, refresh_token: str) -> dict:
-    """Trust the API, not the browser: the identity comes from Supabase's own response."""
-    status, out = _http("POST", "/auth/refresh", {"refresh_token": refresh_token})
-    if not (status == 200 and out and out.get("success") and out.get("uid")):
-        raise ValueError("could not verify the sign-in with the server")
+def apply_login(access_token: str, refresh_token: str | None = None) -> dict:
+    """Verify user identity from API or token payload, then save state and start tracking."""
+    uid = None
+    email = None
+
+    # 1. If refresh token provided, try /auth/refresh
+    if refresh_token:
+        status, out = _http("POST", "/auth/refresh", {"refresh_token": refresh_token})
+        if status == 200 and out and out.get("success") and out.get("uid"):
+            uid = out["uid"]
+            email = out.get("email")
+            access_token = out.get("access_token", access_token)
+            refresh_token = out.get("refresh_token", refresh_token)
+
+    # 2. If not verified yet, verify access_token via /auth/profile on API
+    if not uid:
+        status, out = _http("GET", "/auth/profile", token=access_token)
+        if status == 200 and isinstance(out, dict) and out.get("id"):
+            uid = out["id"]
+            email = out.get("email")
+
+    # 3. Fallback: decode claims directly from the JWT payload
+    if not uid:
+        payload = _jwt_payload(access_token)
+        exp = int(payload.get("exp", 0))
+        if exp > time.time() and payload.get("sub"):
+            uid = payload["sub"]
+            email = payload.get("email")
+
+    if not uid:
+        raise ValueError("could not verify sign-in credentials")
+
     with _lock:
-        changed = _state.get("uid") != out["uid"]
+        changed = _state.get("uid") != uid
         if changed:
             _stop_tracking()
         _state.clear()
-        _state.update(
-            uid=out["uid"], email=out.get("email"),
-            access_token=out["access_token"], refresh_token=out["refresh_token"],
-        )
+        _state["uid"] = uid
+        _state["email"] = email
+        _state["access_token"] = access_token
+        if refresh_token:
+            _state["refresh_token"] = refresh_token
         _save_state()
     ensure_tracking()
-    return {"email": out.get("email")}
+    log.info(f"Signed in as {email or uid}; tracking active")
+    return {"email": email or ""}
 
 
 def apply_logout() -> None:
@@ -266,7 +348,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def _origin(self) -> str | None:
         o = (self.headers.get("Origin") or "").rstrip("/")
-        return o if o in ALLOWED_ORIGINS else None
+        if not o:
+            return None
+        if o in ALLOWED_ORIGINS:
+            return o
+        try:
+            p = urlparse(o)
+            host = (p.hostname or "").lower()
+            if host in ("localhost", "127.0.0.1") or host.endswith(".vercel.app"):
+                return o
+        except Exception:
+            pass
+        return None
 
     def _send(self, code: int, obj=None, origin: str | None = None):
         body = b"" if obj is None else json.dumps(obj).encode("utf-8")
@@ -276,7 +369,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Access-Control-Allow-Origin", origin)
                 self.send_header("Vary", "Origin")
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
                 self.send_header("Access-Control-Allow-Private-Network", "true")
                 self.send_header("Access-Control-Max-Age", "600")
             self.send_header("Content-Type", "application/json")
@@ -319,10 +412,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/login":
             at, rt = body.get("access_token"), body.get("refresh_token")
-            if not (isinstance(at, str) and isinstance(rt, str) and len(rt) >= 10):
-                return self._send(400, {"error": "missing tokens"}, origin)
+            if not (isinstance(at, str) and len(at) >= 10):
+                return self._send(400, {"error": "missing access token"}, origin)
             try:
-                info = apply_login(at, rt)
+                info = apply_login(at, rt if isinstance(rt, str) else None)
                 return self._send(200, {"ok": True, **info}, origin)
             except Exception as e:
                 log.warning(f"login handoff failed: {e}")
@@ -333,23 +426,28 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"}, origin)
 
 
-def run_agent(interval_minutes: float) -> None:
-    if "YOUR-SERVICE" in API_URL:
-        log.error("API_URL is not configured; set it before building the agent.")
-        _popup("MindEase agent is not configured (API address missing).", "MindEase")
-        return
+class AgentServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
-    # tracker.py's own value is a 72-second test interval; use the real one.
+
+def run_agent(interval_minutes: float) -> None:
+    # tracker.py's interval setup.
     # INTERVAL_SECONDS must be an int: the typing-bucket maths breaks with a float.
     tracker.INTERVAL_HOURS = interval_minutes / 60.0
     tracker.INTERVAL_SECONDS = max(60, int(round(interval_minutes * 60)))
 
-    try:
-        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    except OSError:
+    server = None
+    for _ in range(5):
+        try:
+            server = AgentServer(("127.0.0.1", PORT), Handler)
+            break
+        except OSError:
+            time.sleep(1)
+
+    if not server:
         log.info("port already in use: another agent is running; exiting")
         return
-    server.daemon_threads = True
 
     _load_state()
     try:

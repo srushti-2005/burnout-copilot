@@ -1,15 +1,15 @@
 # Builds MindEaseAgent.exe and copies it into the website's public/downloads folder.
 # Run from the repo root or the agent folder, in PowerShell:
 #   cd agent
-#   .\build_agent.ps1 -ApiUrl "https://YOUR-SERVICE.onrender.com" -Origins "https://burnout-copilot.vercel.app"
+#   .\build_agent.ps1
 param(
-    [Parameter(Mandatory = $true)][string]$ApiUrl,
-    [string]$Origins = "https://burnout-copilot-git-main-srushtiii2005-1873s-projects.vercel.app/"
+    [string]$ApiUrl = "https://burnout-copilot.onrender.com",
+    [string]$Origins = "https://burnout-copilot.vercel.app,https://burnout-copilot-git-main-srushtiii2005-1873s-projects.vercel.app,http://localhost:3000,http://localhost:5173"
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-if ($ApiUrl -notmatch '^https://') { throw "ApiUrl must start with https://" }
+if ($ApiUrl -notmatch '^https?://') { throw "ApiUrl must start with http:// or https://" }
 $ApiUrl = $ApiUrl.TrimEnd('/')
 
 python -m pip install --quiet --upgrade pyinstaller
@@ -17,10 +17,8 @@ python -m pip install --quiet --upgrade pyinstaller
 # The agent reuses the real tracker. Copy it next to the agent for the build.
 Copy-Item ..\backend\src\data\tracker.py .\tracker.py -Force
 
-# Bake the two settings into a temporary copy (the source file stays untouched).
+# Copy mindease_agent.py as the build source
 $src = Get-Content .\mindease_agent.py -Raw
-$src = $src.Replace('https://YOUR-SERVICE.onrender.com', $ApiUrl)
-$src = $src.Replace('https://burnout-copilot-git-main-srushtiii2005-1873s-projects.vercel.app/,http://localhost:3000', $Origins)
 Set-Content .\_build_agent.py $src -Encoding UTF8
 
 python -m PyInstaller --onefile --noconsole --clean --name MindEaseAgent .\_build_agent.py

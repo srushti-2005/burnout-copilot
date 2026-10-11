@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Calendar, Heart, Moon, RefreshCw, Shield, Sparkles } from "lucide-react";
 
 import { callApi, getDashboard } from "@/lib/dashboard.functions";
-import { disconnectAgent } from "@/lib/agent";
+import { disconnectAgent, agentStatus, connectAgent } from "@/lib/agent";
 import { emptyDashboard } from "@/lib/dashboard.fallback";
 import type { TwinPayload } from "@/lib/dashboard.types";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
@@ -68,6 +68,8 @@ function Dashboard() {
   const [showFocusPanel, setShowFocusPanel] = useState(false);
   const [focusInitialMinutes, setFocusInitialMinutes] = useState(20);
   const [interventionsReloadKey, setInterventionsReloadKey] = useState(0);
+  const [agentInstalled, setAgentInstalled] = useState<boolean | null>(null);
+  const [dismissAgentBanner, setDismissAgentBanner] = useState(false);
   const fetchDashboard = useServerFn(getDashboard);
   const callApiFn = useServerFn(callApi);
 
@@ -136,6 +138,19 @@ function Dashboard() {
     setToken(storedToken);
     setReady(true);
   }, [navigate]);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) {
+      agentStatus().then((s) => {
+        setAgentInstalled(s.installed);
+        if (s.installed && token) {
+          void connectAgent(token);
+        }
+      }).catch(() => {
+        setAgentInstalled(false);
+      });
+    }
+  }, [token]);
 
   const { data, refetch, isFetching } = useQuery({
     queryKey: ["dashboard", token],
@@ -285,6 +300,33 @@ function Dashboard() {
             onStartFocus={openFocusPanel}
             onNavigate={setCurrentView}
           />
+        )}
+
+        {agentInstalled === false && !dismissAgentBanner && (
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-clay-purple/40 bg-clay-purple/10 px-5 py-3.5 text-sm text-foreground">
+            <div className="flex items-center gap-3">
+              <Sparkles className="size-5 shrink-0 text-clay-purple" />
+              <span>
+                <strong>PC Tracking is inactive:</strong> Double-click <code>MindEaseAgent.exe</code> on your computer to log typing rhythm and workload sessions automatically.
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <a
+                href="/downloads/MindEaseAgent.exe"
+                download="MindEaseAgent.exe"
+                className="rounded-full bg-gradient-to-r from-clay-purple to-clay-pink px-4 py-1.5 text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-90"
+              >
+                Download Agent (.exe)
+              </a>
+              <button
+                type="button"
+                onClick={() => setDismissAgentBanner(true)}
+                className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
         )}
 
         {d.error && (

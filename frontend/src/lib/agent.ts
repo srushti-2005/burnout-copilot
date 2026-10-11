@@ -1,70 +1,34 @@
-// frontend/src/lib/agent.ts
-//
-// Talks to the MindEase PC agent running on the USER'S OWN computer
-// (http://127.0.0.1:47821). Runs in the browser only. If the agent is not
-// installed, every call fails quietly and the website works as before.
-//
-// Chrome/Edge: allowed from an https page (loopback counts as trustworthy).
-// Chrome 142+ shows a one-time "access devices on your local network" prompt: the
-// tester must click Allow. Safari blocks this, and the agent is Windows-only anyway.
-
+// src/lib/agent.ts
 const AGENT_URL = "http://127.0.0.1:47821";
 
-export type AgentStatus =
-  | { installed: false }
-  | { installed: true; email: string | null; tracking: boolean };
+export type AgentResult =
+  | { ok: true; email?: string }
+  | { ok: false; error: "agent not reachable" | string };
 
-async function agentFetch(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    return await fetch(`${AGENT_URL}${path}`, {
-      ...init,
-      signal: ctrl.signal,
-      // Chrome's Local Network Access hint. Other browsers ignore it.
-      ...({ targetAddressSpace: "loopback" } as object),
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
+export type AgentStatus = {
+  installed: boolean;
+  tracking: boolean;
+  email?: string | null;
+};
 
-/** Is the agent installed and running on this PC, and who is it tracking? */
-export async function getAgentStatus(): Promise<AgentStatus> {
-  try {
-    const res = await agentFetch("/status", { method: "GET" }, 3000);
-    if (!res.ok) return { installed: false };
-    const j = (await res.json()) as { email?: string | null; tracking?: boolean };
-    return { installed: true, email: j.email ?? null, tracking: Boolean(j.tracking) };
-  } catch {
-    return { installed: false };
-  }
-}
-
-/**
- * Hand the signed-in user's tokens to the agent so it starts tracking for them.
- * Call right after a successful login or signup, WITHOUT awaiting it before
- * you navigate: the first call can take about a minute if the free Render
- * server is waking up. The refresh token is passed straight through and must
- * not be stored anywhere in the web app.
- */
+/** Hand this browser session's tokens to the locally-installed PC agent, if any. */
 export async function connectAgent(
   accessToken: string,
-  refreshToken: string,
-): Promise<{ ok: boolean; error: string | null }> {
+  refreshToken?: string,
+): Promise<AgentResult> {
   try {
-    const res = await agentFetch(
-      "/login",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken }),
-      },
-      100_000,
-    );
-    const j = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-    if (res.ok && j?.ok) return { ok: true, error: null };
-    return { ok: false, error: j?.error ?? `agent returned ${res.status}` };
+    const res = await fetch(`${AGENT_URL}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        access_token: accessToken,
+        refresh_token: refreshToken || "",
+      }),
+      signal: AbortSignal.timeout(6000), // agent is local; don't hang on it
+    });
+    if (!res.ok) return { ok: false, error: `agent error (${res.status})` };
+    const data = await res.json();
+    return { ok: true, email: data.email };
   } catch {
     return { ok: false, error: "agent not reachable" };
   }
@@ -73,8 +37,26 @@ export async function connectAgent(
 /** Stop tracking on this PC. Call from the sign-out button. */
 export async function disconnectAgent(): Promise<void> {
   try {
-    await agentFetch("/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }, 3000);
+    await fetch(`${AGENT_URL}/logout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(3000),
+    });
   } catch {
     /* agent not installed: nothing to stop */
   }
 }
+
+export async function agentStatus(): Promise<AgentStatus> {
+  try {
+    const res = await fetch(`${AGENT_URL}/status`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return { installed: false, tracking: false };
+    const data = await res.json();
+    return { installed: true, tracking: !!data.tracking, email: data.email || null };
+  } catch {
+    return { installed: false, tracking: false };
+  }
+}
+
+export const getAgentStatus = agentStatus;
