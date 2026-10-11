@@ -25,8 +25,9 @@ python -m PyInstaller --onefile --noconsole --clean --name MindEaseAgent .\_buil
 
 New-Item -ItemType Directory -Force ..\frontend\public\downloads | Out-Null
 Copy-Item .\dist\MindEaseAgent.exe ..\frontend\public\downloads\MindEaseAgent.exe -Force
+Compress-Archive -Path ..\frontend\public\downloads\MindEaseAgent.exe -DestinationPath ..\frontend\public\downloads\MindEaseAgent.zip -Force
 
 Remove-Item .\_build_agent.py, .\tracker.py, .\MindEaseAgent.spec -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force .\build, .\dist -ErrorAction SilentlyContinue
-Write-Host "Done: frontend\public\downloads\MindEaseAgent.exe"
-Write-Host "Now commit and push so Vercel serves it at /downloads/MindEaseAgent.exe"
+Write-Host "Done: frontend\public\downloads\MindEaseAgent.exe & MindEaseAgent.zip"
+Write-Host "Now commit and push so Vercel serves them at /downloads/"

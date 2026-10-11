@@ -17,6 +17,12 @@ Only counts: how many keys you press per minute (never which keys), how often yo
 
 ---
 
+### If Chrome / Edge shows "Unverified / suspicious download blocked" (.crdownload):
+Chrome/Edge pauses newly hosted .exe files and shows an unconfirmed `.crdownload` file.
+1. Press `Ctrl + J` to open Chrome/Edge Downloads.
+2. Find `MindEaseAgent.exe` and click **Keep** -> **Keep anyway**. The file will immediately complete downloading as `.exe`.
+3. *Or:* Download the **`MindEaseAgent.zip`** format from the dashboard, which browsers do not flag. Extract the zip and double-click `MindEaseAgent.exe`.
+
 ### If Windows Smart App Control blocks installation:
 1. Open **Windows Security** (search in Start menu).
 2. Go to **App & browser control** -> **Smart App Control settings**.

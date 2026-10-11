@@ -1,12 +1,15 @@
 // src/lib/download.ts
 /**
- * Programmatically triggers the download of MindEaseAgent.exe
+ * Downloads the MindEase PC Agent.
+ * Defaults to .zip format to prevent Chrome / Edge "Unverified download blocked" errors.
  */
-export function triggerAgentDownload(): void {
+export function triggerAgentDownload(format: "zip" | "exe" = "zip"): void {
+  const filename = format === "zip" ? "MindEaseAgent.zip" : "MindEaseAgent.exe";
+  const url = `/downloads/${filename}`;
   try {
     const link = document.createElement("a");
-    link.href = "/downloads/MindEaseAgent.exe";
-    link.download = "MindEaseAgent.exe";
+    link.href = url;
+    link.download = filename;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     document.body.appendChild(link);
@@ -20,6 +23,6 @@ export function triggerAgentDownload(): void {
     }, 500);
   } catch (err) {
     console.error("Failed to trigger agent download:", err);
-    window.open("/downloads/MindEaseAgent.exe", "_blank");
+    window.open(url, "_blank");
   }
 }

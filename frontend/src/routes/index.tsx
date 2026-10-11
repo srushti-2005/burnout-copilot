@@ -303,29 +303,41 @@ function Dashboard() {
         )}
 
         {agentInstalled === false && !dismissAgentBanner && (
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-clay-purple/40 bg-clay-purple/10 px-5 py-3.5 text-sm text-foreground">
-            <div className="flex items-center gap-3">
-              <Sparkles className="size-5 shrink-0 text-clay-purple" />
-              <span>
-                <strong>PC Tracking is inactive:</strong> Double-click <code>MindEaseAgent.exe</code> on your computer to log typing rhythm and workload sessions automatically.
-              </span>
+          <div className="flex flex-col gap-2 rounded-2xl border border-clay-purple/40 bg-clay-purple/10 px-5 py-3.5 text-sm text-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Sparkles className="size-5 shrink-0 text-clay-purple" />
+                <span>
+                  <strong>PC Tracking is inactive:</strong> Run <code>MindEaseAgent.exe</code> on your computer to log typing rhythm and session focus.
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href="/downloads/MindEaseAgent.zip"
+                  download="MindEaseAgent.zip"
+                  className="rounded-full bg-gradient-to-r from-clay-purple to-clay-pink px-4 py-1.5 text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-90"
+                >
+                  Download Agent (.zip)
+                </a>
+                <a
+                  href="/downloads/MindEaseAgent.exe"
+                  download="MindEaseAgent.exe"
+                  className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+                >
+                  Direct .exe
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setDismissAgentBanner(true)}
+                  className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <a
-                href="/downloads/MindEaseAgent.exe"
-                download="MindEaseAgent.exe"
-                className="rounded-full bg-gradient-to-r from-clay-purple to-clay-pink px-4 py-1.5 text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-90"
-              >
-                Download Agent (.exe)
-              </a>
-              <button
-                type="button"
-                onClick={() => setDismissAgentBanner(true)}
-                className="text-xs font-semibold text-muted-foreground hover:text-foreground"
-              >
-                Dismiss
-              </button>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              💡 <em>Note:</em> If Chrome/Edge shows &ldquo;Unverified/suspicious download blocked&rdquo;, click <strong>Download Agent (.zip)</strong> or open Downloads (<kbd className="rounded border border-border px-1">Ctrl+J</kbd>) and select <strong>Keep anyway</strong>.
+            </p>
           </div>
         )}
 

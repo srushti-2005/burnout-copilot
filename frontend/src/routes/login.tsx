@@ -65,10 +65,13 @@ function LoginPage() {
             toast.success("PC tracking is active for your account.");
           }
         } else if (isWindows) {
-          triggerAgentDownload();
+          triggerAgentDownload("zip");
           toast.info(
-            "MindEase PC Agent is downloading! Double-click MindEaseAgent.exe in your Downloads folder to enable session tracking.",
-            { duration: 9000 },
+            "MindEase PC Agent (.zip) is downloading! Open the zip and run MindEaseAgent.exe to start tracking.",
+            {
+              duration: 10000,
+              description: "If your browser shows 'Unverified download blocked', press Ctrl+J and select 'Keep anyway'.",
+            },
           );
         }
       } catch {
