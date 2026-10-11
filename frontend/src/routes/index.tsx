@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Calendar, Heart, Moon, RefreshCw, Shield, Sparkles } from "lucide-react";
 
 import { callApi, getDashboard } from "@/lib/dashboard.functions";
+import { disconnectAgent } from "@/lib/agent";
 import { emptyDashboard } from "@/lib/dashboard.fallback";
 import type { TwinPayload } from "@/lib/dashboard.types";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
@@ -117,6 +118,7 @@ function Dashboard() {
   }, []);
 
   const endSession = useCallback(() => {
+    void disconnectAgent(); // stop PC tracking for this user (no-op if the agent is not installed)
     localStorage.removeItem("bc_uid");
     localStorage.removeItem("bc_token");
     void navigate({ to: "/login" });

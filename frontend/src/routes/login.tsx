@@ -6,11 +6,12 @@ import { toast } from "sonner";
 
 import { loginUser, resetPassword, signupUser } from "@/lib/dashboard.functions";
 import type { AuthResult } from "@/lib/dashboard.types";
+import { connectAgent } from "@/lib/agent";
 import { MindEaseMark } from "@/components/mindease/MindEaseLogo";
 import { ThemeToggle } from "@/components/mindease/ThemeToggle";
 
 export const Route = createFileRoute("/login")({
-    head: () => ({
+  head: () => ({
     meta: [
       { title: "Sign in — MindEase" },
       {
@@ -26,6 +27,29 @@ export const Route = createFileRoute("/login")({
   }),
   component: LoginPage,
 });
+
+/**
+ * Hand this login to the MindEase PC agent (if it is installed on this computer)
+ * so tracking starts for THIS user. Deliberately not awaited by the caller: the
+ * first call can take up to a minute while the free server wakes up.
+ */
+function startPcTracking(accessToken: string, refreshToken: string): void {
+  void connectAgent(accessToken, refreshToken).then((res) => {
+    if (res.ok) {
+      toast.success("PC tracking is on for this account.");
+      return;
+    }
+    if (res.error === "agent not reachable" && /Windows/i.test(navigator.userAgent)) {
+      toast.info("Install the MindEase PC agent to track on this computer.", {
+        duration: 20000,
+        action: {
+          label: "Download",
+          onClick: () => window.open("/downloads/MindEaseAgent.exe", "_blank"),
+        },
+      });
+    }
+  });
+}
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -45,12 +69,14 @@ function LoginPage() {
   const finish = (r: AuthResult) => {
     if (r.success && r.uid && r.access_token) {
       localStorage.setItem("bc_uid", r.uid);
-            localStorage.setItem("bc_token", r.access_token);
+      localStorage.setItem("bc_token", r.access_token);
       try {
         sessionStorage.setItem("me_splash", "1"); // plays the MindEase intro once after login
       } catch {
         /* ignore */
       }
+      // The refresh token is only passed on to the PC agent. It is never stored by the website.
+      if (r.refresh_token) startPcTracking(r.access_token, r.refresh_token);
       void navigate({ to: "/" });
       return;
     }
@@ -121,7 +147,7 @@ function LoginPage() {
   };
 
   return (
-        <div className="flex min-h-screen items-center justify-center p-6">
+    <div className="flex min-h-screen items-center justify-center p-6">
       <div className="fixed right-6 top-6 z-20">
         <ThemeToggle />
       </div>

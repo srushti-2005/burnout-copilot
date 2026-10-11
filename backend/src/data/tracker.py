@@ -87,6 +87,16 @@ _switch_lock  = threading.Lock()
 # Tracks when this tracker session started (reset on start_tracker call)
 _session_start: float = 0.0
 
+# Optional replacement for supabase_manager.save_session(uid, data).
+_custom_saver = None
+
+
+def set_saver(fn):
+    """Register fn(uid, session_data) to be used instead of the direct Supabase save.
+    It must raise on failure so the interval's counters are kept for the next try."""
+    global _custom_saver
+    _custom_saver = fn
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # THREAD 1 — Keyboard listener
@@ -257,8 +267,13 @@ def _collection_loop(uid: str, session_start: float):
     Saves one session to Supabase every INTERVAL_HOURS.
     work_duration is the total hours elapsed since tracker started.
     """
-    # Import here to avoid circular imports at module load time
-    from src.data.supabase_manager import save_session
+    # PC agent builds: a saver that posts to the API (no Supabase key on the PC)
+    # is registered with set_saver(). Otherwise fall back to the original
+    # direct-to-Supabase save, so local/dev behaviour is unchanged.
+    save_session = _custom_saver
+    if save_session is None:
+        # Import here to avoid circular imports at module load time
+        from src.data.supabase_manager import save_session
 
     log.info(f"Collection loop started for uid={uid}. "
              f"First save in {INTERVAL_HOURS} hour(s).")

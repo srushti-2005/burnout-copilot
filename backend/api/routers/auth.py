@@ -45,6 +45,9 @@ def _publish_active_user(request: Request, uid: str | None, email: str | None) -
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # Opt-in: only the website asks for this, to hand it to the PC agent.
+    # The mobile app never sets it, so its behaviour is unchanged.
+    include_refresh_token: bool = False
 
 
 class SignupRequest(BaseModel):
@@ -52,10 +55,15 @@ class SignupRequest(BaseModel):
     password: str
     name: str
     age: int = Field(..., ge=13, le=100)
+    include_refresh_token: bool = False
 
 
 class ResetRequest(BaseModel):
     email: EmailStr
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=10)
 
 
 class AuthResult(BaseModel):
@@ -64,6 +72,7 @@ class AuthResult(BaseModel):
     email: str | None = None
     display_name: str | None = None
     access_token: str | None = None   # Supabase JWT, sent as "Authorization: Bearer <token>"
+    refresh_token: str | None = None  # only returned when include_refresh_token=true or on /auth/refresh
     error: str | None = None
 
 
@@ -84,6 +93,13 @@ def _token_of(res) -> str | None:
     return session.access_token if session else None
 
 
+def _refresh_of(res, include: bool) -> str | None:
+    if not include:
+        return None
+    session = getattr(res, "session", None)
+    return getattr(session, "refresh_token", None) if session else None
+
+
 @router.post("/login", response_model=AuthResult)
 def login(payload: LoginRequest, request: Request):
     try:
@@ -101,6 +117,7 @@ def login(payload: LoginRequest, request: Request):
             email=res.user.email,
             display_name=meta.get("display_name") or meta.get("name") or "",
             access_token=_token_of(res),
+            refresh_token=_refresh_of(res, payload.include_refresh_token),
         )
     except Exception as e:
         return AuthResult(success=False, error=str(e))
@@ -133,9 +150,33 @@ def signup(payload: SignupRequest, request: Request):
             display_name=payload.name,
             # None when Supabase requires email confirmation: the UI then asks the user to log in
             access_token=token,
+            refresh_token=_refresh_of(res, payload.include_refresh_token),
         )
     except Exception as e:
         return AuthResult(success=False, error=str(e))
+
+
+@router.post("/refresh", response_model=AuthResult)
+def refresh(payload: RefreshRequest):
+    """
+    Used by the PC agent to keep a signed-in user's access token fresh
+    (Supabase access tokens last about 1 hour). The refresh token is the
+    user's own credential, so this can only ever act as that user.
+    """
+    try:
+        res = get_auth_client().auth.refresh_session(payload.refresh_token)
+        session = getattr(res, "session", None)
+        if not session or not res.user:
+            return AuthResult(success=False, error="Session expired. Please sign in again.")
+        return AuthResult(
+            success=True,
+            uid=res.user.id,
+            email=res.user.email,
+            access_token=session.access_token,
+            refresh_token=session.refresh_token,
+        )
+    except Exception:
+        return AuthResult(success=False, error="Session expired. Please sign in again.")
 
 
 @router.post("/logout")

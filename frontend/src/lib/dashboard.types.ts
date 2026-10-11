@@ -78,6 +78,7 @@ export interface AuthResult {
   email?: string;
   display_name?: string;
   access_token?: string;
+  refresh_token?: string | null; // only present on web logins; handed straight to the PC agent
   error?: string;
 }
 

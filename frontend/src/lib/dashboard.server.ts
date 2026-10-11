@@ -32,7 +32,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export async function apiLogin(email: string, password: string): Promise<AuthResult> {
   try {
-    return await post<AuthResult>("/auth/login", { email, password });
+    return await post<AuthResult>("/auth/login", { email, password, include_refresh_token: true });
   } catch (e) {
     return { success: false, error: (e as Error).message };
   }
@@ -45,7 +45,7 @@ export async function apiSignup(
   age: number,
 ): Promise<AuthResult> {
   try {
-    return await post<AuthResult>("/auth/signup", { email, password, name, age });
+    return await post<AuthResult>("/auth/signup", { email, password, name, age, include_refresh_token: true });
   } catch (e) {
     return { success: false, error: (e as Error).message };
   }
