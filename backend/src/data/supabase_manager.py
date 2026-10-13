@@ -340,6 +340,7 @@ def save_session(uid: str, data: dict):
             )
             time.sleep(delay)
 
+    # pyrefly: ignore [bad-raise]
     raise last_error
 
 
