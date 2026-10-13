@@ -447,6 +447,8 @@ class AgentServer(ThreadingHTTPServer):
 
 
 def create_server(interval_minutes: float) -> AgentServer | None:
+    if hasattr(tracker, "_attach_to_default_desktop"):
+        tracker._attach_to_default_desktop()
     tracker.INTERVAL_HOURS = interval_minutes / 60.0
     tracker.INTERVAL_SECONDS = max(60, int(round(interval_minutes * 60)))
 
@@ -563,7 +565,7 @@ def _install_and_launch() -> None:
 
     _register_protocol()
 
-    flags = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED | NEW_PROCESS_GROUP | NO_WINDOW
+    flags = 0x08000000  # CREATE_NO_WINDOW (keep process attached to interactive desktop WinSta0\Default)
     subprocess.Popen(launch, creationflags=flags, close_fds=True)
     log.info(f"installed to {target if getattr(sys, 'frozen', False) else 'script mode'}")
 

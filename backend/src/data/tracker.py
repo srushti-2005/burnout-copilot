@@ -63,10 +63,10 @@ except Exception:
 # ── Constants ────────────────────────────────────────────────────────────────
 INTERVAL_HOURS   = 0.02
 INTERVAL_SECONDS = INTERVAL_HOURS * 3600
-WINDOW_POLL_SEC  = 3
+WINDOW_POLL_SEC  = 1.0
 
-# Windows-native keyboard fallback polling interval.
-_NATIVE_KEY_POLL_SEC = 0.02
+# Windows-native keyboard polling interval.
+_NATIVE_KEY_POLL_SEC = 0.01
 
 
 # ── Shared state (module-level, protected by locks) ──────────────────────────
@@ -108,11 +108,16 @@ def _on_keypress(key):
 
 
 def _attach_to_default_desktop():
-    """Ensure the calling thread is attached to the interactive user desktop 'Default'."""
+    """Ensure the process and calling thread are attached to the interactive user desktop 'WinSta0\\Default'."""
     if __import__("sys").platform == "win32":
         try:
             import ctypes
             user32 = ctypes.windll.user32
+            # 1. Attach process window station to WinSta0
+            h_winsta = user32.OpenWindowStationW("WinSta0", False, 0x000F037F)
+            if h_winsta:
+                user32.SetProcessWindowStation(h_winsta)
+            # 2. Attach thread desktop to Default
             h_desk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
             if h_desk:
                 user32.SetThreadDesktop(h_desk)
@@ -122,8 +127,8 @@ def _attach_to_default_desktop():
 
 def _native_keyboard_poller():
     """
-    Windows-only fallback for pynput.
-    Polls the state of the 256 virtual keys and records a timestamp on press.
+    Windows-native keyboard collector.
+    Polls the state of virtual keys across all applications and records a timestamp on press.
     """
     if __import__("sys").platform != "win32":
         return
@@ -131,16 +136,21 @@ def _native_keyboard_poller():
     try:
         import ctypes
         user32 = ctypes.windll.user32
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+
         _attach_to_default_desktop()
         previous_down = [False] * 256
+        MOUSE_VKEYS = {0x01, 0x02, 0x04, 0x05, 0x06}
 
         log.info("⌨️  Windows-native keyboard collector started")
 
         while not _stop_event.is_set() and not _native_kb_stop.is_set():
-            for vk in range(1, 256):
+            for vk in range(8, 256):
+                if vk in MOUSE_VKEYS:
+                    continue
                 try:
                     val = user32.GetAsyncKeyState(vk)
-                    is_down = bool(val & 0x8001)
+                    is_down = bool(val & 0x8000)
                 except Exception:
                     is_down = False
 
@@ -188,6 +198,10 @@ def _get_active_window_title() -> str:
             kernel32 = ctypes.windll.kernel32
 
             hwnd = user32.GetForegroundWindow()
+            if not hwnd:
+                _attach_to_default_desktop()
+                hwnd = user32.GetForegroundWindow()
+
             if not hwnd:
                 return ""
 
@@ -393,7 +407,14 @@ def start_tracker(uid: str):
 
     # ── Start keyboard listener ───────────────────────────────────────────────
     _attach_to_default_desktop()
-    if PYNPUT_OK:
+    if __import__("sys").platform == "win32":
+        _native_kb_thread = threading.Thread(
+            target=_native_keyboard_poller,
+            name="burnout_native_keyboard",
+            daemon=True,
+        )
+        _native_kb_thread.start()
+    elif PYNPUT_OK:
         try:
             _kb_listener = _kb.Listener(on_press=_on_keypress, daemon=True)
             _kb_listener.start()
@@ -401,18 +422,8 @@ def start_tracker(uid: str):
         except Exception as e:
             log.warning(f"⌨️  Keyboard listener failed to start: {e}")
             _kb_listener = None
-
-    # If pynput is unavailable or failed, use Windows-native collector.
-    if not PYNPUT_OK or _kb_listener is None:
-        if __import__("sys").platform == "win32":
-            _native_kb_thread = threading.Thread(
-                target=_native_keyboard_poller,
-                name="burnout_native_keyboard",
-                daemon=True,
-            )
-            _native_kb_thread.start()
-        else:
-            log.warning("⌨️  No keyboard collector available on this platform")
+    else:
+        log.warning("⌨️  No keyboard collector available on this platform")
 
     # ── Start window poller ───────────────────────────────────────────────────
     _win_thread = threading.Thread(
