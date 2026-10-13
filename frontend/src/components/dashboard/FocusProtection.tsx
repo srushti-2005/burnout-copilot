@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useServerFn } from "@tanstack/react-start";
-import { PictureInPicture2, Shield, Timer, X } from "lucide-react";
+import { Monitor, PictureInPicture2, Shield, Timer, X } from "lucide-react";
 
 import { callApi } from "@/lib/dashboard.functions";
 import { getAgentMetrics } from "@/lib/agent";
@@ -72,19 +72,38 @@ interface MiniWidgetProps {
   remaining: number;
   distractionCount: number;
   busy: boolean;
+  targetName?: string | null;
+  stream?: MediaStream | null;
   onEndEarly: () => void;
   onPopOut?: (() => void) | undefined;
 }
 
 // Shared between the in-page corner widget and the Document PiP window --
-// deliberately minimal: just the timer and the distraction count, per the
-// "top-right corner, only distractions & timer" request.
-function FocusMiniWidget({ remaining, distractionCount, busy, onEndEarly, onPopOut }: MiniWidgetProps) {
+// minimal: timer, target, and distraction count, with optional screen preview.
+function FocusMiniWidget({
+  remaining,
+  distractionCount,
+  busy,
+  targetName,
+  stream,
+  onEndEarly,
+  onPopOut,
+}: MiniWidgetProps) {
+  const [showPreview, setShowPreview] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (videoRef.current && stream && showPreview) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [stream, showPreview]);
+
   return (
-    <div className="w-64 rounded-2xl border border-border bg-card p-4 shadow-2xl">
+    <div className="w-72 rounded-2xl border border-border bg-card/95 p-4 shadow-2xl backdrop-blur-md">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-clay-purple">
-          Focus
+        <span className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-clay-purple">
+          <Shield className="size-3" /> Focus Mode
         </span>
         {onPopOut && (
           <button
@@ -97,10 +116,44 @@ function FocusMiniWidget({ remaining, distractionCount, busy, onEndEarly, onPopO
           </button>
         )}
       </div>
+
+      {targetName && (
+        <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-clay-purple/10 px-2.5 py-1 text-[11px] font-semibold text-clay-purple">
+          <Monitor className="size-3 shrink-0" />
+          <span className="truncate" title={targetName}>
+            {targetName}
+          </span>
+        </div>
+      )}
+
       <p className="mt-1 font-display text-4xl font-extrabold tabular-nums">{formatClock(remaining)}</p>
       <p className="mt-1 text-xs font-semibold text-muted-foreground">
         {distractionCount === 0 ? "Flow state · 0 task switches" : `Switched tasks ${distractionCount}×`}
       </p>
+
+      {stream && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setShowPreview((p) => !p)}
+            className="text-[10px] font-bold text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {showPreview ? "Hide preview" : "Show screen preview"}
+          </button>
+          {showPreview && (
+            <div className="mt-1 overflow-hidden rounded-xl border border-border bg-black/40">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="h-24 w-full object-cover"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         type="button"
         disabled={busy}
@@ -139,10 +192,58 @@ export function FocusProtection({
     () => typeof window !== "undefined" && !!window.documentPictureInPicture,
   );
 
+  const [targetName, setTargetName] = useState<string | null>(null);
+  const [focusStream, setFocusStream] = useState<MediaStream | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const endsAtRef = useRef(0);
   const finishingRef = useRef(false);
   const agentStartSwitchesRef = useRef<number | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
+
+  const stopMediaStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setFocusStream(null);
+  }, []);
+
+  const pickScreenTarget = async (): Promise<boolean> => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getDisplayMedia) {
+      setError("Screen selection is not supported in this browser. Please use Chrome, Edge, or Firefox.");
+      return false;
+    }
+    try {
+      setError(null);
+      // Native browser screen-sharing prompt — zero extensions required!
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+
+      const track = stream.getVideoTracks()[0];
+      if (!track) return false;
+
+      stopMediaStream();
+      streamRef.current = stream;
+      setFocusStream(stream);
+
+      const label = track.label || "Selected Tab / Window";
+      setTargetName(label);
+
+      track.addEventListener("ended", () => {
+        stopMediaStream();
+      });
+
+      return true;
+    } catch (err) {
+      if (err instanceof Error && err.name !== "NotAllowedError") {
+        setError(err.message);
+      }
+      return false;
+    }
+  };
 
   const call = useCallback(
     async <T,>(method: Verb, path: string, body?: unknown): Promise<T> => {
@@ -191,8 +292,8 @@ export function FocusProtection({
     if (!pipSupported || !window.documentPictureInPicture) return;
     try {
       const pipWindow = await window.documentPictureInPicture.requestWindow({
-        width: 260,
-        height: 190,
+        width: 300,
+        height: 230,
       });
 
       // Copy the current document's stylesheets into the PiP window so
@@ -236,8 +337,9 @@ export function FocusProtection({
   useEffect(() => {
     return () => {
       pipWindowRef.current?.close();
+      stopMediaStream();
     };
-  }, []);
+  }, [stopMediaStream]);
 
   const beginRunning = useCallback((id: string, remainingSeconds: number) => {
     finishingRef.current = false;
@@ -278,6 +380,7 @@ export function FocusProtection({
         setResult(data);
         setPhase("finished");
         closePip();
+        stopMediaStream();
         onFinished?.();
       } catch (e) {
         finishingRef.current = false;
@@ -286,7 +389,7 @@ export function FocusProtection({
         setBusy(false);
       }
     },
-    [sessionId, distractionCount, closePip, onFinished],
+    [sessionId, distractionCount, closePip, stopMediaStream, onFinished],
   );
 
   useEffect(() => {
@@ -379,10 +482,19 @@ export function FocusProtection({
   };
 
   const reset = () => {
+    stopMediaStream();
+    setTargetName(null);
     setPhase("idle");
     setSessionId(null);
     setResult(null);
     setError(null);
+  };
+
+  const handleStart = async () => {
+    if (!targetName && typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia) {
+      await pickScreenTarget();
+    }
+    await start();
   };
 
   // RUNNING: always shows the mini widget, regardless of panelOpen, so the
@@ -395,6 +507,8 @@ export function FocusProtection({
         remaining={remaining}
         distractionCount={distractionCount}
         busy={busy}
+        targetName={targetName}
+        stream={focusStream}
         onEndEarly={() => void finish(true)}
         onPopOut={pipSupported && !pipActive ? () => void openPip() : undefined}
       />
@@ -547,6 +661,52 @@ export function FocusProtection({
         </div>
       </div>
 
+      <div className="mt-4 rounded-xl border border-border/80 bg-muted/40 p-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Focus Target / Document
+          </p>
+          <span className="text-[11px] font-semibold text-clay-purple">No extension needed</span>
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Choose which document, app window, or browser tab you are studying with:
+        </p>
+
+        {targetName ? (
+          <div className="mt-2.5 flex items-center justify-between rounded-xl border border-clay-purple/40 bg-card p-2.5 shadow-xs">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-clay-purple/10 text-clay-purple">
+                <Monitor className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-bold text-foreground" title={targetName}>
+                  {targetName}
+                </p>
+                <p className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                  ● Tracking this tab/window
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void pickScreenTarget()}
+              className="ml-2 shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              Change
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void pickScreenTarget()}
+            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-clay-purple/50 bg-card/60 py-2.5 text-xs font-bold text-clay-purple transition-all hover:border-clay-purple hover:bg-clay-purple/10 hover:shadow-xs"
+          >
+            <Monitor className="size-4" />
+            Select Tab, Window, or Screen to Track
+          </button>
+        )}
+      </div>
+
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {DURATIONS.map((m) => (
           <button
@@ -565,7 +725,7 @@ export function FocusProtection({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void start()}
+          onClick={() => void handleStart()}
           className="ml-auto flex items-center gap-2 rounded-2xl bg-clay-purple px-5 py-2.5 font-bold text-card transition-all hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-50"
         >
           <Timer className="size-4" />

@@ -169,6 +169,7 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
             "ok": True,
             "user": _user_profile(user_id),
             "cli": 0, "cli_category": "", "rest_pct": 0, "focus_pct": 0, "balance_pct": 0,
+            "stress_level": "Low", "energy_level": "90%",
             "late_night_count": 0, "session_count": 0, "avg_duration": 0,
             "latest": None, "trend": [], "forecast": [], "suggestions": [],
             "drivers": [], "compare": [],
@@ -191,17 +192,36 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
 
     stored_cli = float(latest.get("cli_score") or 0.0)
 
-    # Morning reset: if the latest session was yesterday with overnight rest, start day at 0
-    if is_earlier_day and (delta_hours >= 5.0 or (now.hour >= 5 and latest_dt.hour < 5)):
+    # Morning reset: only after overnight sleep (>= 6 hours gap on an earlier calendar day)
+    if is_earlier_day and delta_hours >= 6.0:
         current_cli = 0.0
         current_category = "low"
-    elif delta_hours >= 6.0:
+    elif delta_hours >= 7.0:
         current_cli = 0.0
         current_category = "low"
     else:
-        # Same day: apply natural continuous rest decay for elapsed time since latest session
-        current_cli = round(stored_cli * math.exp(-0.35 * delta_hours), 3)
+        # Same day: slow, continuous rest decay (e^(-0.15 * delta_hours))
+        # Rate-limited so live refreshing decays smoothly by at most 1-2% per 2-minute interval
+        decay = math.exp(-0.15 * delta_hours)
+        decayed = stored_cli * decay
+        max_drop = 0.015 * max(1.0, (delta_hours * 30.0))
+        current_cli = round(max(0.0, max(stored_cli - max_drop, decayed)), 3)
         current_category = categorize_cli(current_cli)
+
+    # Realistic Energy and Mental Load calculation
+    # Energy is not a naive (100 - CLI); it factors in cumulative work hours and current cognitive strain.
+    # Morning start is ~90-92% (fresh), gently expending through the workday.
+    total_work_hours = sum(float(r.get("work_duration") or 0.0) for r in rows[:8])
+    base_energy = 90.0
+    energy_val = round(max(20.0, min(92.0, base_energy - (total_work_hours * 3.0) - (current_cli * 40.0))))
+    energy_str = f"{energy_val}%"
+
+    if current_cli <= 0.25:
+        stress_str = "Low"
+    elif current_cli <= 0.60:
+        stress_str = "Moderate"
+    else:
+        stress_str = "Elevated"
 
     latest_df = pd.DataFrame([{k: latest[k] for k in RAW_COLS}])
     latest_df_norm = normalize_with_fixed_bounds(latest_df, bounds).iloc[0]
@@ -239,6 +259,8 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
         "user": _user_profile(user_id),
         "cli": current_cli,
         "cli_category": current_category,
+        "stress_level": stress_str,
+        "energy_level": energy_str,
         **_pct_metrics(latest_norm),
         "late_night_count": late_night_count,
         "session_count": len(rows),
