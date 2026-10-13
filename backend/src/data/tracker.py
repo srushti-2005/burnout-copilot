@@ -107,13 +107,23 @@ def _on_keypress(key):
         _key_times.append(time.time())
 
 
+def _attach_to_default_desktop():
+    """Ensure the calling thread is attached to the interactive user desktop 'Default'."""
+    if __import__("sys").platform == "win32":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            h_desk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+            if h_desk:
+                user32.SetThreadDesktop(h_desk)
+        except Exception:
+            pass
+
+
 def _native_keyboard_poller():
     """
     Windows-only fallback for pynput.
-
-    Polls the state of the 256 virtual keys and records a timestamp only when
-    a key changes from up -> down. This preserves the same basic metric:
-    one timestamp per observed keypress.
+    Polls the state of the 256 virtual keys and records a timestamp on press.
     """
     if __import__("sys").platform != "win32":
         return
@@ -121,6 +131,7 @@ def _native_keyboard_poller():
     try:
         import ctypes
         user32 = ctypes.windll.user32
+        _attach_to_default_desktop()
         previous_down = [False] * 256
 
         log.info("⌨️  Windows-native keyboard collector started")
@@ -128,7 +139,8 @@ def _native_keyboard_poller():
         while not _stop_event.is_set() and not _native_kb_stop.is_set():
             for vk in range(1, 256):
                 try:
-                    is_down = bool(user32.GetAsyncKeyState(vk) & 0x8000)
+                    val = user32.GetAsyncKeyState(vk)
+                    is_down = bool(val & 0x8001)
                 except Exception:
                     is_down = False
 
@@ -150,6 +162,7 @@ def _native_keyboard_poller():
 
 def _window_poller():
     global _last_window, _switch_count
+    _attach_to_default_desktop()
 
     while not _stop_event.is_set():
         title = _get_active_window_title()
@@ -165,45 +178,47 @@ def _window_poller():
 
 
 def _get_active_window_title() -> str:
-    # Original preferred implementation.
-    if PYGETWINDOW_OK:
-        try:
-            win = _gw.getActiveWindow()
-            return win.title.strip() if win and win.title else ""
-        except Exception:
-            pass
-
-    # Windows-native fallback. This removes the dependency on pygetwindow/psutil
-    # for the active-window metric while keeping the same title-based switch logic.
+    # Windows-native title and process name detection on the interactive desktop
     if __import__("sys").platform == "win32":
         try:
             import ctypes
+            import os
 
             user32 = ctypes.windll.user32
-            hwnd = user32.GetForegroundWindow()
+            kernel32 = ctypes.windll.kernel32
 
+            hwnd = user32.GetForegroundWindow()
             if not hwnd:
                 return ""
 
             length = user32.GetWindowTextLengthW(hwnd)
-            if length <= 0:
-                return ""
+            if length > 0:
+                buffer = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buffer, length + 1)
+                val = buffer.value.strip()
+                if val:
+                    return val
 
-            buffer = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buffer, length + 1)
-            return buffer.value.strip()
+            # Fallback to foreground process executable name (e.g. chrome.exe, Code.exe)
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value:
+                h_proc = kernel32.OpenProcess(0x1000, False, pid.value)
+                if h_proc:
+                    buf = ctypes.create_unicode_buffer(1024)
+                    size = ctypes.c_ulong(1024)
+                    kernel32.QueryFullProcessImageNameW(h_proc, 0, buf, ctypes.byref(size))
+                    kernel32.CloseHandle(h_proc)
+                    pname = os.path.basename(buf.value).strip()
+                    if pname:
+                        return pname
         except Exception:
             pass
 
-    # Original psutil fallback, retained unchanged.
-    if PSUTIL_OK:
+    if PYGETWINDOW_OK:
         try:
-            import ctypes
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            pid  = ctypes.c_ulong()
-            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            proc = psutil.Process(pid.value)
-            return proc.name()
+            win = _gw.getActiveWindow()
+            return win.title.strip() if win and win.title else ""
         except Exception:
             pass
 
@@ -377,11 +392,12 @@ def start_tracker(uid: str):
         _last_window  = None
 
     # ── Start keyboard listener ───────────────────────────────────────────────
+    _attach_to_default_desktop()
     if PYNPUT_OK:
         try:
             _kb_listener = _kb.Listener(on_press=_on_keypress, daemon=True)
             _kb_listener.start()
-            log.info("⌨️  Keyboard listener started")
+            log.info("⌨️  Keyboard listener started (pynput WH_KEYBOARD_LL)")
         except Exception as e:
             log.warning(f"⌨️  Keyboard listener failed to start: {e}")
             _kb_listener = None

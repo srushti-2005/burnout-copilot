@@ -400,6 +400,13 @@ class Handler(BaseHTTPRequestHandler):
                 "tracking": tracker.is_running(),
                 "interval_minutes": tracker.INTERVAL_HOURS * 60.0,
             }, origin)
+        if path == "/metrics":
+            return self._send(200, {
+                "key_events": len(getattr(tracker, "_key_times", [])),
+                "switches": getattr(tracker, "_switch_count", 0),
+                "last_window": getattr(tracker, "_last_window", ""),
+                "running": tracker.is_running(),
+            }, origin)
         self._send(404, {"error": "not found"}, origin)
 
     def do_POST(self):
@@ -439,7 +446,7 @@ class AgentServer(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def start_server_in_thread(interval_minutes: float) -> AgentServer | None:
+def create_server(interval_minutes: float) -> AgentServer | None:
     tracker.INTERVAL_HOURS = interval_minutes / 60.0
     tracker.INTERVAL_SECONDS = max(60, int(round(interval_minutes * 60)))
 
@@ -464,19 +471,24 @@ def start_server_in_thread(interval_minutes: float) -> AgentServer | None:
     threading.Thread(target=_watchdog, name="agent_watchdog", daemon=True).start()
     log.info(f"agent v{VERSION} listening on 127.0.0.1:{PORT}; API={API_URL}; "
              f"interval={interval_minutes} min; origins={sorted(ALLOWED_ORIGINS)}")
+    return server
 
+
+def start_server_in_thread(interval_minutes: float) -> AgentServer | None:
+    server = create_server(interval_minutes)
+    if not server:
+        return None
     t = threading.Thread(target=server.serve_forever, name="agent_server", daemon=True)
     t.start()
     return server
 
 
 def run_agent(interval_minutes: float) -> None:
-    server = start_server_in_thread(interval_minutes)
+    server = create_server(interval_minutes)
     if not server:
         return
     try:
-        while True:
-            time.sleep(1)
+        server.serve_forever()
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
@@ -558,11 +570,16 @@ def _install_and_launch() -> None:
 
 def _kill_other_agents() -> None:
     try:
-        subprocess.run(
-            ["taskkill", "/F", "/IM", EXE_NAME, "/FI", f"PID ne {os.getpid()}"],
-            capture_output=True, creationflags=0x08000000,
-        )
-        time.sleep(1)
+        import psutil
+        curr_pid = os.getpid()
+        ppid = psutil.Process(curr_pid).ppid()
+        for p in psutil.process_iter(["pid", "name"]):
+            try:
+                if p.info["name"] == EXE_NAME and p.info["pid"] not in (curr_pid, ppid):
+                    p.kill()
+            except Exception:
+                pass
+        time.sleep(0.5)
     except Exception:
         pass
 
