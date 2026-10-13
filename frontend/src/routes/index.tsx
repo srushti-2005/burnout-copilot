@@ -30,7 +30,7 @@ import { FairLoadCard } from "@/components/dashboard/FeatureCards";
 
 type ViewId = "home" | "digital-twin" | "recommendations" | "analytics" | "ai-insights" | "reports";
 
-const BREAK_POPUP_CLI_THRESHOLD = 0.15;
+const BREAK_POPUP_CLI_THRESHOLD = 30;
 
 function formatToday(): string {
   return new Date().toLocaleDateString(undefined, {
@@ -281,9 +281,8 @@ function Dashboard() {
               type="button"
               aria-pressed={showFocusPanel}
               onClick={() => setShowFocusPanel((s) => !s)}
-              className={`flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors hover:bg-muted ${
-                showFocusPanel ? "border-clay-purple bg-clay-purple/10 text-clay-purple" : "border-border"
-              }`}
+              className={`flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors hover:bg-muted ${showFocusPanel ? "border-clay-purple bg-clay-purple/10 text-clay-purple" : "border-border"
+                }`}
             >
               <Shield className="size-4" />
               Focus Mode
@@ -296,14 +295,14 @@ function Dashboard() {
               onClick={() => void refreshDashboard()}
               className="grid size-10 place-items-center rounded-2xl border border-border transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted active:scale-95"
             >
-                           <RefreshCw className={`size-4 ${isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw className={`size-4 ${isFetching ? "animate-spin" : ""}`} />
             </button>
 
             <ThemeToggle />
           </div>
         </header>
 
-                {token && (
+        {token && (
           <FocusProtection
             token={token}
             recommended={focusRecommended}
@@ -445,131 +444,131 @@ function Dashboard() {
         )}
 
         <div key={currentView} className="me-page-enter flex flex-col gap-6">
-        {currentView === "home" && token && (
-          <HomeOverview
-            name={name}
-            dashboard={d}
-            twin={twinData ?? null}
-            token={token}
-            onStartFocus={openFocusPanel}
-            onSessionExpired={endSession}
-            reloadKey={interventionsReloadKey}
-            onNavigate={setCurrentView}
-          />
-        )}
-
-        {currentView === "digital-twin" && (
-          <div>
-            <div className="mb-4">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-clay-purple">
-                Digital Twin
-              </p>
-              <h2 className="mt-1 text-2xl">Your personalized digital twin</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Age context, your rolling baseline, and how today compares to your own normal.
-              </p>
-            </div>
-            <DigitalTwinPanel twin={twinData ?? null} loading={twinLoading} />
-          </div>
-        )}
-
-        {currentView === "recommendations" && token && (
-          <div>
-            <div className="mb-4">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-clay-purple">
-                Recommendations
-              </p>
-              <h2 className="mt-1 text-2xl">Recommendations for You</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Personalized, cause-aware actions based on what's actually driving your score today.
-              </p>
-            </div>
-
-            <InterventionsPanel
+          {currentView === "home" && token && (
+            <HomeOverview
+              name={name}
+              dashboard={d}
+              twin={twinData ?? null}
               token={token}
               onStartFocus={openFocusPanel}
               onSessionExpired={endSession}
               reloadKey={interventionsReloadKey}
+              onNavigate={setCurrentView}
             />
+          )}
 
-            <div className="mt-6">
-              <RecommendationsHub token={token} dashboard={d} twin={twinData ?? null} />
-            </div>
-          </div>
-        )}
-
-        {currentView === "analytics" && (
-          <div className="flex flex-col gap-6">
-            <AnalyticsTop dashboard={d} />
-
-            <div className="flex flex-wrap gap-6">
-              <RiskGauge
-                cli={d.cli}
-                category={d.cli_category}
-                stress={d.stress_level}
-                energy={d.energy_level}
-                recovery={d.recovery_state}
-                headline={d.headline?.title}
-              />
-              {token && <TimeBreakdownCard token={token} />}
-            </div>
-
-            <div className="flex flex-wrap gap-6">
-              <ForecastChart data={d.forecast} />
-            </div>
-          </div>
-        )}
-
-        {currentView === "ai-insights" && (
-          <div className="flex flex-col gap-6">
+          {currentView === "digital-twin" && (
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-clay-purple">
-                AI Insights
-              </p>
-              <h2 className="mt-1 text-2xl">Risk and forecast insights</h2>
+              <div className="mb-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-clay-purple">
+                  Digital Twin
+                </p>
+                <h2 className="mt-1 text-2xl">Your personalized digital twin</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Age context, your rolling baseline, and how today compares to your own normal.
+                </p>
+              </div>
+              <DigitalTwinPanel twin={twinData ?? null} loading={twinLoading} />
             </div>
+          )}
 
-            <div className="flex flex-wrap gap-6">
-              <StatCard
-                label="Rest Quality"
-                value={`${d.rest_pct}%`}
-                caption={`${d.late_night_count} late night sessions`}
-                direction={d.late_night_count > 0 ? "down" : "up"}
-                icon={Moon}
-                tone="purple"
-                spark={trendSpark}
+          {currentView === "recommendations" && token && (
+            <div>
+              <div className="mb-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-clay-purple">
+                  Recommendations
+                </p>
+                <h2 className="mt-1 text-2xl">Recommendations for You</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Personalized, cause-aware actions based on what's actually driving your score today.
+                </p>
+              </div>
+
+              <InterventionsPanel
+                token={token}
+                onStartFocus={openFocusPanel}
+                onSessionExpired={endSession}
+                reloadKey={interventionsReloadKey}
               />
-              <StatCard
-                label="Focus Score"
-                value={`${d.focus_pct}%`}
-                caption={`${d.session_count} sessions recorded`}
-                direction="up"
-                icon={Brain}
-                tone="blue"
-                spark={trendSpark}
-              />
-              <StatCard
-                label="Work-Life Balance"
-                value={`${d.balance_pct}%`}
-                caption={`avg ${d.avg_duration.toFixed(1)} hrs/day`}
-                direction={d.balance_pct < 50 ? "down" : "up"}
-                icon={Heart}
-                tone="pink"
-                spark={trendSpark}
-              />
+
+              <div className="mt-6">
+                <RecommendationsHub token={token} dashboard={d} twin={twinData ?? null} />
+              </div>
             </div>
+          )}
 
-            <InsightsPanel headline={d.headline} suggestions={d.suggestions} drivers={d.drivers} />
-            {token && <FairLoadCard token={token} />}
-          </div>
-        )}
+          {currentView === "analytics" && (
+            <div className="flex flex-col gap-6">
+              <AnalyticsTop dashboard={d} />
 
-        {currentView === "reports" && (
-          <div className="flex flex-col gap-6">
-            <ReportsView dashboard={d} twin={twinData ?? null} token={token} />
-            <ComparePanel name={name} metrics={d.compare} />
-          </div>
-        )}
+              <div className="flex flex-wrap gap-6">
+                <RiskGauge
+                  cli={d.cli}
+                  category={d.cli_category}
+                  stress={d.stress_level}
+                  energy={d.energy_level}
+                  recovery={d.recovery_state}
+                  headline={d.headline?.title}
+                />
+                {token && <TimeBreakdownCard token={token} />}
+              </div>
+
+              <div className="flex flex-wrap gap-6">
+                <ForecastChart data={d.forecast} />
+              </div>
+            </div>
+          )}
+
+          {currentView === "ai-insights" && (
+            <div className="flex flex-col gap-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-clay-purple">
+                  AI Insights
+                </p>
+                <h2 className="mt-1 text-2xl">Risk and forecast insights</h2>
+              </div>
+
+              <div className="flex flex-wrap gap-6">
+                <StatCard
+                  label="Rest Quality"
+                  value={`${d.rest_pct}%`}
+                  caption={`${d.late_night_count} late night sessions`}
+                  direction={d.late_night_count > 0 ? "down" : "up"}
+                  icon={Moon}
+                  tone="purple"
+                  spark={trendSpark}
+                />
+                <StatCard
+                  label="Focus Score"
+                  value={`${d.focus_pct}%`}
+                  caption={`${d.session_count} sessions recorded`}
+                  direction="up"
+                  icon={Brain}
+                  tone="blue"
+                  spark={trendSpark}
+                />
+                <StatCard
+                  label="Work-Life Balance"
+                  value={`${d.balance_pct}%`}
+                  caption={`avg ${d.avg_duration.toFixed(1)} hrs/day`}
+                  direction={d.balance_pct < 50 ? "down" : "up"}
+                  icon={Heart}
+                  tone="pink"
+                  spark={trendSpark}
+                />
+              </div>
+
+              <InsightsPanel headline={d.headline} suggestions={d.suggestions} drivers={d.drivers} />
+              {token && <FairLoadCard token={token} />}
+            </div>
+          )}
+
+          {currentView === "reports" && (
+            <div className="flex flex-col gap-6">
+              <ReportsView dashboard={d} twin={twinData ?? null} token={token} />
+              <ComparePanel name={name} metrics={d.compare} />
+            </div>
+          )}
 
         </div>
 
@@ -583,7 +582,7 @@ function Dashboard() {
         </footer>
 
         {showBreakPopup && (
-            <div className="me-backdrop-in fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-md">
+          <div className="me-backdrop-in fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-md">
             <div
               role="dialog"
               aria-modal="true"
