@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { PictureInPicture2, Shield, Timer, X } from "lucide-react";
 
 import { callApi } from "@/lib/dashboard.functions";
+import { getAgentMetrics } from "@/lib/agent";
 
 interface Snapshot {
   risk: number | null;
@@ -98,7 +99,7 @@ function FocusMiniWidget({ remaining, distractionCount, busy, onEndEarly, onPopO
       </div>
       <p className="mt-1 font-display text-4xl font-extrabold tabular-nums">{formatClock(remaining)}</p>
       <p className="mt-1 text-xs font-semibold text-muted-foreground">
-        {distractionCount === 0 ? "No distractions yet" : `Switched away ${distractionCount}x`}
+        {distractionCount === 0 ? "Flow state · 0 task switches" : `Switched tasks ${distractionCount}×`}
       </p>
       <button
         type="button"
@@ -140,7 +141,7 @@ export function FocusProtection({
 
   const endsAtRef = useRef(0);
   const finishingRef = useRef(false);
-  const awayRef = useRef(false);
+  const agentStartSwitchesRef = useRef<number | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
 
   const call = useCallback(
@@ -240,7 +241,7 @@ export function FocusProtection({
 
   const beginRunning = useCallback((id: string, remainingSeconds: number) => {
     finishingRef.current = false;
-    awayRef.current = false;
+    agentStartSwitchesRef.current = null;
     endsAtRef.current = Date.now() + remainingSeconds * 1000;
     setSessionId(id);
     setRemaining(remainingSeconds);
@@ -300,35 +301,39 @@ export function FocusProtection({
     return () => window.clearInterval(id);
   }, [phase, finish]);
 
-  // Focus Guard: Page Visibility + window blur/focus. This is what
-  // actually detects "left this tab/window" -- it works whether the user
-  // switches to another tab, another browser window, or a completely
-  // different application (all of these blur the current window).
+  // Focus Guard: Monitors genuine general task switches via the PC agent
+  // instead of falsely penalizing switching away from the MindEase website.
   useEffect(() => {
-    if (phase !== "running") return;
+    if (phase !== "running") {
+      agentStartSwitchesRef.current = null;
+      return;
+    }
 
-    const markAway = () => {
-      if (!awayRef.current) {
-        awayRef.current = true;
-        setDistractionCount((c) => c + 1);
+    let cancelled = false;
+
+    const pollMetrics = async () => {
+      const metrics = await getAgentMetrics();
+      if (cancelled || !metrics) return;
+
+      const currentTotal =
+        metrics.total_switches !== undefined
+          ? metrics.total_switches
+          : metrics.switches ?? 0;
+
+      if (agentStartSwitchesRef.current === null) {
+        agentStartSwitchesRef.current = currentTotal;
+      } else {
+        const delta = Math.max(0, currentTotal - agentStartSwitchesRef.current);
+        setDistractionCount(delta);
       }
     };
-    const markBack = () => {
-      awayRef.current = false;
-    };
-    const onVisibility = () => {
-      if (document.hidden) markAway();
-      else markBack();
-    };
 
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("blur", markAway);
-    window.addEventListener("focus", markBack);
+    void pollMetrics();
+    const intervalId = window.setInterval(pollMetrics, 2000);
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("blur", markAway);
-      window.removeEventListener("focus", markBack);
+      cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [phase]);
 
@@ -446,8 +451,8 @@ export function FocusProtection({
           <p className="text-xs font-bold uppercase text-muted-foreground">Focus continuity</p>
           <p className="mt-1 text-sm font-bold">
             {result.distraction_count === 0
-              ? "You stayed on this tab the whole session."
-              : `You switched away ${result.distraction_count} time${result.distraction_count === 1 ? "" : "s"} during this session.`}
+              ? "Deep uninterrupted flow — 0 task switches."
+              : `Detected ${result.distraction_count} task switch${result.distraction_count === 1 ? "" : "es"} during this session.`}
           </p>
         </div>
 

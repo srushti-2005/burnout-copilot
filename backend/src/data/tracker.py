@@ -80,9 +80,17 @@ _native_kb_stop   = threading.Event()
 _key_times : deque = deque()
 _key_lock          = threading.Lock()
 
-_last_window  = None
-_switch_count = 0
-_switch_lock  = threading.Lock()
+_last_window   = None
+_switch_count  = 0
+_total_switches = 0
+_switch_lock   = threading.Lock()
+
+def _is_mindease_title(title: str) -> bool:
+    if not title:
+        return False
+    t = title.lower()
+    return "mindease" in t or "burnout" in t or "localhost:3000" in t or "localhost:5173" in t
+
 
 # Tracks when this tracker session started (reset on start_tracker call)
 _session_start: float = 0.0
@@ -171,7 +179,7 @@ def _native_keyboard_poller():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _window_poller():
-    global _last_window, _switch_count
+    global _last_window, _switch_count, _total_switches
     _attach_to_default_desktop()
 
     while not _stop_event.is_set():
@@ -180,8 +188,13 @@ def _window_poller():
             with _switch_lock:
                 if title != _last_window:
                     if _last_window is not None:
-                        _switch_count += 1
-                        log.debug(f"Window switch → {title[:40]}")
+                        is_mindease_transition = (
+                            _is_mindease_title(title) or _is_mindease_title(_last_window)
+                        )
+                        if not is_mindease_transition:
+                            _switch_count += 1
+                            _total_switches += 1
+                            log.debug(f"Window switch → {title[:40]}")
                     _last_window = title
 
         _stop_event.wait(timeout=WINDOW_POLL_SEC)

@@ -21,68 +21,104 @@ log = logging.getLogger("burnout_tracker")
 
 MIN_SESSIONS_FOR_BASELINE = MIN_BASELINE_SESSIONS  # single source of truth: config.py
 
-# How recent a check-in has to be, relative to when a session is saved,
-# to count as "this is what the user was doing during this session".
-# Sessions are recorded automatically by the tracker/widget, independently
-# of when the user taps the check-in popup, so this is a best-effort
-# match by recency rather than a strict foreign key join.
-ACTIVITY_CONTEXT_WINDOW_MINUTES = 60
+import math
+
+# How recent a check-in has to be to count as active context for a session.
+ACTIVITY_CONTEXT_WINDOW_MINUTES = 240
 
 
 def _get_recent_activity_context(uid: str, window_minutes: int = ACTIVITY_CONTEXT_WINDOW_MINUTES) -> dict | None:
-    """Most recent activity_logs row for this user, if it ended within
-    the last `window_minutes`. Returns None (never raises) so a lookup
-    failure never blocks a session from saving -- it just falls back to
-    an unadjusted (multiplier 1.0) CLI, same as before this feature.
+    """Most recent activity_logs row for this user, if it was recorded within
+    the last `window_minutes`. Returns None (never raises) on failure.
     """
     try:
         sb = get_service_client()
         res = (
             sb.table("activity_logs").select("*")
-            .eq("user_id", uid).order("segment_end_utc", desc=True)
+            .eq("user_id", uid).order("created_at", desc=True)
             .limit(1).execute()
         )
         if not res.data:
             return None
         row = res.data[0]
-        ended = datetime.fromisoformat(row["segment_end_utc"].replace("Z", "+00:00"))
-        age_minutes = (datetime.now(timezone.utc) - ended).total_seconds() / 60
-        if age_minutes > window_minutes:
-            return None
-        return row
+        ts = row.get("segment_end_utc") or row.get("created_at")
+        if ts:
+            ended = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            age_minutes = (datetime.now(timezone.utc) - ended).total_seconds() / 60
+            if age_minutes <= window_minutes:
+                return row
+        return None
     except Exception as e:
         log.error(f"[supabase_manager] activity context lookup failed (non-fatal): {e}")
         return None
 
 
-def _compute_cli_for_row(row: dict, age: int | None = None, context_multiplier: float = 1.0) -> tuple:
+def _get_active_or_recent_focus_session(uid: str) -> dict | None:
+    """Checks if the user has an active focus session or one completed within the last 30 minutes."""
+    try:
+        sb = get_service_client()
+        # 1. Check currently active focus session
+        active_res = (
+            sb.table("focus_sessions").select("*")
+            .eq("user_id", uid).eq("status", "active")
+            .order("start_time", desc=True).limit(1).execute()
+        )
+        if active_res.data:
+            return active_res.data[0]
+        # 2. Check recently completed focus session (within last 30m)
+        recent_res = (
+            sb.table("focus_sessions").select("*")
+            .eq("user_id", uid).eq("status", "completed")
+            .order("end_time", desc=True).limit(1).execute()
+        )
+        if recent_res.data:
+            end_str = recent_res.data[0].get("end_time") or recent_res.data[0].get("created_at")
+            if end_str:
+                ended = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - ended).total_seconds() <= 1800:
+                    return recent_res.data[0]
+        return None
+    except Exception as e:
+        log.error(f"[supabase_manager] focus session lookup failed (non-fatal): {e}")
+        return None
+
+
+def _get_latest_user_session(uid: str) -> dict | None:
+    """Query the most recent previous session for this user."""
+    try:
+        sb = get_service_client()
+        res = (
+            sb.table("sessions").select("*")
+            .eq("user_id", uid).order("created_at", desc=True)
+            .limit(1).execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        log.error(f"[supabase_manager] previous session query failed (non-fatal): {e}")
+        return None
+
+
+def _compute_cli_for_row(
+    row: dict,
+    age: int | None = None,
+    context_multiplier: float = 1.0,
+    prev_session: dict | None = None,
+    activity_type: str | None = None,
+    is_focus_active: bool = False,
+) -> tuple:
     """
-    Two distinct CLI values are produced here -- do not conflate them:
-
-    cli_raw      = the CRITIC-weighted five-indicator Cognitive Load Index
-                   (typing_mean, typing_variance, task_switching,
-                   work_duration, late_night). Features are normalised with
-                   the fixed training-derived bounds (get_training_bounds)
-                   and weighted with the CRITIC weights computed from the
-                   training dataset (get_training_weights); late_night is
-                   used as the 0/1 value. Computed by calculate_cli()
-                   (src/cli_logic.py), which neither sees age nor the
-                   activity-context multiplier, and rounds to 3 decimals.
-
-    cli_adjusted = cli_raw * context_multiplier. The multiplier comes from
-                   the user's most recent activity check-in
-                   (src/features/activity_context.py) and is applied AFTER
-                   the canonical CLI calculation. It defaults to 1.0, in
-                   which case cli_adjusted == cli_raw (sessions recorded
-                   before the feature existed, or no recent check-in).
-
-    The risk category is derived from cli_adjusted using the fixed
-    thresholds in categorize_cli(): Low < 0.4 <= Medium < 0.7 <= High.
-    Age never enters the numerical CLI. In the current src/cli_logic.py,
-    categorize_cli() accepts `age` only for backward compatibility and
-    IGNORES it, so the `age` argument below has no effect on the category;
-    age is used elsewhere only as a prior for the personalised baseline
-    (src/personalization/baseline_prior.py), not in this function.
+    Computes CLI with cumulative fatigue-recovery dynamics:
+    1. Instantaneous Load (L_raw): CRITIC-weighted five-indicator cognitive strain.
+    2. Context-Adjusted Load (L_adjusted): L_raw * context_multiplier.
+    3. Baseline / Previous Session State:
+       - Morning / Overnight reset: If previous session was on an earlier day
+         and >= 5 hours overnight gap (or >= 6 hours break), start fresh in the morning at 0.0.
+       - Intra-day Break / Logout: CLI decays smoothly with rest time (e.g. e^(-0.35 * delta_hours)),
+         so logging out never wipes fatigue to zero.
+    4. Asymmetric Dynamics:
+       - Increase is gradual (alpha_up = 0.35)
+       - Decrease is slower than increase (alpha_down = 0.12, or 0.22 if activity is 'break').
+         Prevents sudden drops from e.g. 25% to 1% after heavy sessions.
 
     Returns (cli_raw, cli_adjusted, risk_level).
     """
@@ -94,8 +130,60 @@ def _compute_cli_for_row(row: dict, age: int | None = None, context_multiplier: 
         "late_night":      int(bool(row["late_night"])),
     }])
     norm = normalize_with_fixed_bounds(single, get_training_bounds())
-    cli_raw = calculate_cli(norm.iloc[0], get_training_weights())
-    cli_adjusted = cli_raw * context_multiplier
+    instant_raw = calculate_cli(norm.iloc[0], get_training_weights())
+    instant_adjusted = round(min(1.0, max(0.0, instant_raw * context_multiplier)), 4)
+
+    # Determine previous fatigue baseline
+    now = datetime.now(timezone.utc)
+    base_raw = 0.0
+    base_adjusted = 0.0
+
+    if prev_session:
+        prev_ts_str = prev_session.get("created_at")
+        if prev_ts_str:
+            try:
+                prev_dt = datetime.fromisoformat(prev_ts_str.replace("Z", "+00:00"))
+                delta_hours = max(0.0, (now - prev_dt).total_seconds() / 3600.0)
+                is_earlier_day = (prev_dt.date() < now.date())
+
+                # Morning reset: first log in the morning after overnight sleep
+                if is_earlier_day and (delta_hours >= 5.0 or (now.hour >= 5 and prev_dt.hour < 5)):
+                    base_raw = 0.0
+                    base_adjusted = 0.0
+                elif delta_hours >= 6.0:
+                    base_raw = 0.0
+                    base_adjusted = 0.0
+                else:
+                    # Intra-day continuity: gradual exponential rest decay for break time
+                    decay = math.exp(-0.35 * delta_hours)
+                    base_raw = float(prev_session.get("cli_score_raw") or prev_session.get("cli_score") or 0.0) * decay
+                    base_adjusted = float(prev_session.get("cli_score") or 0.0) * decay
+            except Exception:
+                base_raw = 0.0
+                base_adjusted = 0.0
+
+    # Asymmetric Fatigue/Recovery Update
+    # Increase: gradual buildup (alpha_up = 0.35)
+    # Decrease: slower recovery (alpha_down = 0.12, or 0.22 if active break)
+    alpha_up = 0.35
+    is_break = (activity_type or "").lower() == "break"
+    alpha_down = 0.22 if is_break else 0.12
+
+    # Calculate final adjusted CLI
+    if instant_adjusted >= base_adjusted:
+        cli_adjusted = base_adjusted + alpha_up * (instant_adjusted - base_adjusted)
+    else:
+        cli_adjusted = base_adjusted - alpha_down * (base_adjusted - instant_adjusted)
+
+    # Calculate final canonical raw CLI
+    if instant_raw >= base_raw:
+        cli_raw = base_raw + alpha_up * (instant_raw - base_raw)
+    else:
+        cli_raw = base_raw - alpha_down * (base_raw - instant_raw)
+
+    cli_adjusted = round(min(1.0, max(0.0, cli_adjusted)), 3)
+    cli_raw = round(min(1.0, max(0.0, cli_raw)), 3)
+
     risk = categorize_cli(cli_adjusted, age=age)
     return cli_raw, cli_adjusted, risk
 
@@ -110,8 +198,6 @@ def save_session(uid: str, data: dict):
         "late_night":      bool(data.get("late_night", 0)),
     }
 
-    # NOTE: `age` is passed through for backward compatibility only;
-    # categorize_cli() currently ignores it (see _compute_cli_for_row).
     try:
         profile = get_profile(uid)
         age = profile.get("age") if profile else None
@@ -119,25 +205,43 @@ def save_session(uid: str, data: dict):
         log.error(f"[supabase_manager] profile lookup for age failed (non-fatal): {e}")
         age = None
 
-    # NEW: pull the user's most recent activity check-in (if recent
-    # enough) and turn it into a multiplier before scoring this session.
+    # 1. Activity Check-in Context (work, hobby, break, entertainment, other)
     activity_context = _get_recent_activity_context(uid)
-    multiplier = 1.0
+    activity_type = activity_context.get("activity_type") if activity_context else None
+    activity_mult = 1.0
     if activity_context:
-        multiplier = compute_context_multiplier(
-            activity_context.get("activity_type"),
+        activity_mult = compute_context_multiplier(
+            activity_type,
             activity_context.get("engagement_score"),
         )
 
+    # 2. Focus Mode Context
+    focus_context = _get_active_or_recent_focus_session(uid)
+    focus_mult = 1.0
+    is_focus_active = False
+    if focus_context:
+        is_focus_active = (focus_context.get("status") == "active")
+        distraction_count = focus_context.get("distraction_count", 0) or 0
+        if distraction_count == 0:
+            focus_mult = 0.75  # Deep undisturbed flow
+        else:
+            focus_mult = 0.85
+
+    # Combined context multiplier
+    multiplier = round(min(1.10, max(0.05, activity_mult * focus_mult)), 3)
+
+    # 3. Previous Session (for cumulative fatigue / decay)
+    prev_session = _get_latest_user_session(uid)
+
     try:
-        cli_raw, cli_adjusted, risk = _compute_cli_for_row(row, age=age, context_multiplier=multiplier)
-        # Stored columns:
-        #   cli_score_raw      = CRITIC-weighted five-indicator CLI (canonical)
-        #   cli_score          = context-adjusted CLI used by the application
-        #                        (= cli_score_raw * context_multiplier; equal to
-        #                        the raw value only when multiplier == 1.0)
-        #   context_multiplier = activity-context multiplier (default 1.0)
-        #   risk_level         = category of cli_score (age-aware boundaries)
+        cli_raw, cli_adjusted, risk = _compute_cli_for_row(
+            row,
+            age=age,
+            context_multiplier=multiplier,
+            prev_session=prev_session,
+            activity_type=activity_type,
+            is_focus_active=is_focus_active,
+        )
         row["cli_score"]          = cli_adjusted
         row["cli_score_raw"]      = cli_raw
         row["context_multiplier"] = multiplier

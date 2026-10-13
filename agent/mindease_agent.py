@@ -404,6 +404,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {
                 "key_events": len(getattr(tracker, "_key_times", [])),
                 "switches": getattr(tracker, "_switch_count", 0),
+                "total_switches": getattr(tracker, "_total_switches", getattr(tracker, "_switch_count", 0)),
                 "last_window": getattr(tracker, "_last_window", ""),
                 "running": tracker.is_running(),
             }, origin)
@@ -486,14 +487,21 @@ def start_server_in_thread(interval_minutes: float) -> AgentServer | None:
 
 
 def run_agent(interval_minutes: float) -> None:
+    log.info("run_agent starting create_server...")
     server = create_server(interval_minutes)
     if not server:
+        log.warning("run_agent: server could not be created; exiting")
         return
     try:
+        log.info("run_agent entering serve_forever...")
         server.serve_forever()
+        log.info("run_agent serve_forever returned normally")
     except (KeyboardInterrupt, SystemExit):
-        pass
+        log.info("run_agent received interrupt/exit")
+    except Exception as e:
+        log.exception(f"run_agent serve_forever crashed: {e}")
     finally:
+        log.info("run_agent exiting and stopping tracking")
         _stop_tracking()
 
 

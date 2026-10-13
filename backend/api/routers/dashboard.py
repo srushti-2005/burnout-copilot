@@ -178,6 +178,31 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
     weights = get_training_weights()
     bounds = get_training_bounds()
 
+    # Calculate live time-decayed CLI for the user's current moment
+    import math
+    ts = latest["created_at"]
+    if isinstance(ts, str):
+        latest_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    else:
+        latest_dt = ts
+    now = datetime.now(timezone.utc)
+    delta_hours = max(0.0, (now - latest_dt).total_seconds() / 3600.0)
+    is_earlier_day = (latest_dt.date() < now.date())
+
+    stored_cli = float(latest.get("cli_score") or 0.0)
+
+    # Morning reset: if the latest session was yesterday with overnight rest, start day at 0
+    if is_earlier_day and (delta_hours >= 5.0 or (now.hour >= 5 and latest_dt.hour < 5)):
+        current_cli = 0.0
+        current_category = "low"
+    elif delta_hours >= 6.0:
+        current_cli = 0.0
+        current_category = "low"
+    else:
+        # Same day: apply natural continuous rest decay for elapsed time since latest session
+        current_cli = round(stored_cli * math.exp(-0.35 * delta_hours), 3)
+        current_category = categorize_cli(current_cli)
+
     latest_df = pd.DataFrame([{k: latest[k] for k in RAW_COLS}])
     latest_df_norm = normalize_with_fixed_bounds(latest_df, bounds).iloc[0]
     latest_norm = latest_df_norm.to_dict()
@@ -189,7 +214,7 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
         baseline = {}
 
     try:
-        forecast_df = get_7_day_forecast(latest["cli_score"])
+        forecast_df = get_7_day_forecast(current_cli)
         forecast = [
             {"date": d.strftime("%Y-%m-%d"), "CLI": round(float(c), 3)}
             for d, c in zip(forecast_df["Date"], forecast_df["CLI"])
@@ -200,7 +225,7 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
 
     try:
         signals = {k: latest[k] for k in RAW_COLS}
-        suggestion_texts = get_suggestions_for_session(cli=latest["cli_score"], **signals)
+        suggestion_texts = get_suggestions_for_session(cli=current_cli, **signals)
         suggestions = [{"title": s, "body": ""} for s in suggestion_texts]
     except Exception:
         logger.exception("Suggestions failed for %s", user_id)
@@ -212,8 +237,8 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
     return {
         "ok": True,
         "user": _user_profile(user_id),
-        "cli": latest["cli_score"],
-        "cli_category": latest["risk_level"],
+        "cli": current_cli,
+        "cli_category": current_category,
         **_pct_metrics(latest_norm),
         "late_night_count": late_night_count,
         "session_count": len(rows),

@@ -79,3 +79,24 @@ export async function agentStatus(): Promise<AgentStatus> {
 }
 
 export const getAgentStatus = agentStatus;
+
+export type AgentMetrics = {
+  key_events: number;
+  switches: number;
+  total_switches?: number;
+  last_window: string;
+  running: boolean;
+};
+
+export async function getAgentMetrics(): Promise<AgentMetrics | null> {
+  try {
+    const res = await fetch(`${AGENT_URL}/metrics`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AgentMetrics;
+  } catch {
+    return null;
+  }
+}
