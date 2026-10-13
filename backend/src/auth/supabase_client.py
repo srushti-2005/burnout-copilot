@@ -47,25 +47,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-
-if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-    logger.warning("SUPABASE_URL / SUPABASE_ANON_KEY not set — Supabase features will fail at request time, not at import time.")
-
-def get_service_client():
-    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-        raise RuntimeError("Supabase not configured. Check environment variables.")
-    # ... existing client creation code
-
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# Same fix as cli_logic.py's DEFAULT_DATA_PATH: resolve .env relative
-# to THIS file's location, not the process's working directory. Without
-# this, load_dotenv() with no path relies on locating .env via the call
-# stack, which is not guaranteed to work when launched by Task
-# Scheduler with an unexpected working directory.
 _THIS_DIR     = os.path.dirname(os.path.abspath(__file__))   # .../src/auth
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))  # up two levels -> project root
 _ENV_PATH     = os.path.join(_PROJECT_ROOT, ".env")
@@ -77,10 +61,8 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-    raise RuntimeError(
-        "SUPABASE_URL / SUPABASE_ANON_KEY not set. "
-        "Create a .env file in your project root (see .env.example)."
-    )
+    logger.warning("SUPABASE_URL / SUPABASE_ANON_KEY not set — Supabase features will fail at request time, not at import time.")
+
 
 
 def get_auth_client() -> Client:

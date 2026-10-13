@@ -15,7 +15,7 @@ export type AgentStatus = {
 /** Hand this browser session's tokens to the locally-installed PC agent. */
 export async function connectAgent(
   accessToken: string,
-  refreshToken?: string,
+  refreshToken?: string | null,
 ): Promise<AgentResult> {
   try {
     const res = await fetch(`${AGENT_URL}/login`, {
@@ -37,7 +37,7 @@ export async function connectAgent(
 
 /** 1-click token handoff via the Windows registered mindease:// protocol handler.
  *  Bypasses browser mixed-content and private network restrictions entirely. */
-export function connectAgentViaDeepLink(accessToken: string, refreshToken?: string): void {
+export function connectAgentViaDeepLink(accessToken: string, refreshToken?: string | null): void {
   const q = new URLSearchParams({
     token: accessToken,
     refresh: refreshToken || "",

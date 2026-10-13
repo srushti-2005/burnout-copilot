@@ -19,8 +19,11 @@ regardless of session/RLS state, mirroring how your old signup() wrote
 to Firestore via the Admin SDK.
 """
 
+import logging
 import streamlit as st
 from src.auth.supabase_client import get_auth_client, get_service_client
+
+log = logging.getLogger("auth_manager")
 
 
 # ── internal helpers ──────────────────────────────────────────────────────

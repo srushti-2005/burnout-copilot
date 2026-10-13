@@ -45,13 +45,6 @@ try:
     PYNPUT_OK = True
 except Exception:
     PYNPUT_OK = False
-    log.warning("pynput not available — using Windows-native keyboard collector")
-
-try:
-    import psutil
-    PSUTIL_OK = True
-except Exception:
-    PSUTIL_OK = False
 
 try:
     import pygetwindow as _gw
@@ -400,7 +393,7 @@ def start_tracker(uid: str):
     Safe to call multiple times — does nothing if already running.
     """
     global _tracker_thread, _kb_listener, _win_thread
-    global _native_kb_thread, _native_kb_stop, _stop_event, _session_start
+    global _native_kb_thread, _session_start, _switch_count, _last_window
 
     if _tracker_thread and _tracker_thread.is_alive():
         log.info("Tracker already running — skipping start.")
@@ -414,7 +407,6 @@ def start_tracker(uid: str):
     with _key_lock:
         _key_times.clear()
     with _switch_lock:
-        global _switch_count, _last_window
         _switch_count = 0
         _last_window  = None
 

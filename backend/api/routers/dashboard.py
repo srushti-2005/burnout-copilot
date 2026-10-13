@@ -4,13 +4,13 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from core.supabase_client import get_service_client, get_auth_client  # noqa: F401
+from core.supabase_client import get_service_client
 from core.config import SESSIONS_TABLE
 from core.security import get_current_user_id
 from src.data.supabase_manager import get_or_create_baseline
