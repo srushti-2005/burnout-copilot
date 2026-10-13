@@ -1,27 +1,45 @@
+from __future__ import annotations
+
 # src/data/supabase_manager.py
 """
 Reads/writes behavioural session data using Supabase (Postgres).
 """
 
 import os
-from datetime import datetime, timezone
+import sys
+import math
 import logging
 import socket
 import time
+from pathlib import Path
+from datetime import datetime, timezone
 import pandas as pd
-from src.auth.supabase_client import get_service_client
-from src.cli_logic import (
-    get_training_weights, get_training_bounds,
-    normalize_with_fixed_bounds, calculate_cli, categorize_cli,
-)
-from src.features.activity_context import compute_context_multiplier
-from src.config.config import MIN_BASELINE_SESSIONS
+
+# Ensure backend root is on sys.path for IDEs and standalone executions
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+try:
+    from src.auth.supabase_client import get_service_client
+    from src.cli_logic import (
+        get_training_weights, get_training_bounds,
+        normalize_with_fixed_bounds, calculate_cli, categorize_cli,
+    )
+    from src.features.activity_context import compute_context_multiplier
+    from src.config.config import MIN_BASELINE_SESSIONS
+except ImportError:
+    from backend.src.auth.supabase_client import get_service_client  # type: ignore
+    from backend.src.cli_logic import (  # type: ignore
+        get_training_weights, get_training_bounds,
+        normalize_with_fixed_bounds, calculate_cli, categorize_cli,
+    )
+    from backend.src.features.activity_context import compute_context_multiplier  # type: ignore
+    from backend.src.config.config import MIN_BASELINE_SESSIONS  # type: ignore
 
 log = logging.getLogger("burnout_tracker")
 
 MIN_SESSIONS_FOR_BASELINE = MIN_BASELINE_SESSIONS  # single source of truth: config.py
-
-import math
 
 # How recent a check-in has to be to count as active context for a session.
 ACTIVITY_CONTEXT_WINDOW_MINUTES = 240
@@ -212,12 +230,16 @@ def _compute_cli_for_row(
 
 def save_session(uid: str, data: dict):
     row = {
-        "user_id":         uid,
-        "typing_mean":     float(data.get("typing_mean", 0)),
-        "typing_variance": float(data.get("typing_variance", 0)),
-        "task_switching":  int(data.get("task_switching", 0)),
-        "work_duration":   float(data.get("work_duration", 0)),
-        "late_night":      bool(data.get("late_night", 0)),
+        "user_id":            uid,
+        "typing_mean":        float(data.get("typing_mean", 0)),
+        "typing_variance":    float(data.get("typing_variance", 0)),
+        "task_switching":     int(data.get("task_switching", 0)),
+        "work_duration":      float(data.get("work_duration", 0)),
+        "late_night":         bool(data.get("late_night", 0)),
+        "cli_score":          0.0,
+        "cli_score_raw":      0.0,
+        "context_multiplier": 1.0,
+        "risk_level":         "Low",
     }
 
     try:
