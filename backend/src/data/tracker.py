@@ -25,6 +25,8 @@ NOTE:
   are used when those optional packages are unavailable.
 """
 
+from __future__ import annotations
+
 import threading
 import time
 import logging
@@ -41,13 +43,13 @@ log = logging.getLogger("burnout_tracker")
 
 # ── Optional dependency flags ─────────────────────────────────────────────────
 try:
-    from pynput import keyboard as _kb
+    from pynput import keyboard as _kb  # type: ignore
     PYNPUT_OK = True
 except Exception:
     PYNPUT_OK = False
 
 try:
-    import pygetwindow as _gw
+    import pygetwindow as _gw  # type: ignore
     PYGETWINDOW_OK = True
 except Exception:
     PYGETWINDOW_OK = False

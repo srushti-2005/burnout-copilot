@@ -19,8 +19,9 @@ regardless of session/RLS state, mirroring how your old signup() wrote
 to Firestore via the Admin SDK.
 """
 
+from __future__ import annotations
+
 import logging
-import streamlit as st
 from src.auth.supabase_client import get_auth_client, get_service_client
 
 log = logging.getLogger("auth_manager")
@@ -143,13 +144,11 @@ def reset_password(email: str) -> dict:
 
 
 def logout():
-    """Signs out of Supabase and clears session state keys."""
+    """Signs out of Supabase."""
     try:
         get_auth_client().auth.sign_out()
     except Exception:
         pass
-    for key in ["user_uid", "user_email", "user_name", "id_token", "logged_in"]:
-        st.session_state.pop(key, None)
 
 
 def _friendly_error(msg: str) -> str:

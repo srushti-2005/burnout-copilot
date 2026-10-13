@@ -13,6 +13,8 @@ Runs on a tester's own Windows PC. It:
 
 Typing is recorded as counts per minute only (never which keys).
 """
+from __future__ import annotations
+
 import sys
 import os
 
@@ -76,17 +78,19 @@ logging.basicConfig(
 )
 log = logging.getLogger("mindease_agent")
 
-# tracker.py (copied next to this file when building the exe)
+# tracker.py (bundled with the agent or loaded from backend)
+_backend_dir = Path(__file__).resolve().parent.parent / "backend"
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
+
 try:
-    import tracker
+    import tracker  # type: ignore
 except ImportError:
-    _backend_dir = Path(__file__).resolve().parent.parent / "backend"
-    if str(_backend_dir) not in sys.path:
-        sys.path.insert(0, str(_backend_dir))
     try:
-        from src.data import tracker
+        from src.data import tracker  # type: ignore
     except ImportError:
-        import tracker
+        tracker = None  # type: ignore
+
 
 
 # ───────────────────────── small helpers ─────────────────────────
