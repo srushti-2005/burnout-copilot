@@ -319,7 +319,8 @@ def _collection_loop(uid: str, session_start: float):
 
             # ── Save to Supabase ──────────────────────────────────────────────
             try:
-                save_session(uid, session_data)
+                save_fn = _custom_saver if _custom_saver is not None else save_session
+                save_fn(uid, session_data)
 
                 # Only clear the interval after a confirmed successful INSERT.
                 _reset_metrics_after_success()

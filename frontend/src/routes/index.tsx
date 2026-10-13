@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Calendar, Heart, Moon, RefreshCw, Shield, Sparkles } from "lucide-react";
 
 import { callApi, getDashboard } from "@/lib/dashboard.functions";
-import { disconnectAgent, agentStatus, connectAgent } from "@/lib/agent";
+import { disconnectAgent, agentStatus, connectAgent, connectAgentViaDeepLink } from "@/lib/agent";
+import { toast } from "sonner";
 import { emptyDashboard } from "@/lib/dashboard.fallback";
 import type { TwinPayload } from "@/lib/dashboard.types";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
@@ -68,6 +69,7 @@ function Dashboard() {
   const [showFocusPanel, setShowFocusPanel] = useState(false);
   const [focusInitialMinutes, setFocusInitialMinutes] = useState(20);
   const [interventionsReloadKey, setInterventionsReloadKey] = useState(0);
+  const [agentStatusInfo, setAgentStatusInfo] = useState<{ installed: boolean; tracking: boolean; email?: string | null }>({ installed: false, tracking: false });
   const [agentInstalled, setAgentInstalled] = useState<boolean | null>(null);
   const [dismissAgentBanner, setDismissAgentBanner] = useState(false);
   const fetchDashboard = useServerFn(getDashboard);
@@ -123,6 +125,7 @@ function Dashboard() {
     void disconnectAgent(); // stop PC tracking for this user (no-op if the agent is not installed)
     localStorage.removeItem("bc_uid");
     localStorage.removeItem("bc_token");
+    localStorage.removeItem("bc_refresh_token");
     void navigate({ to: "/login" });
   }, [navigate]);
 
@@ -132,6 +135,7 @@ function Dashboard() {
     if (!storedUid || !storedToken) {
       localStorage.removeItem("bc_uid");
       localStorage.removeItem("bc_token");
+      localStorage.removeItem("bc_refresh_token");
       void navigate({ to: "/login" });
       return;
     }
@@ -140,17 +144,44 @@ function Dashboard() {
   }, [navigate]);
 
   useEffect(() => {
-    if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) {
-      agentStatus().then((s) => {
+    if (typeof navigator === "undefined" || !/Windows/i.test(navigator.userAgent)) return;
+
+    let active = true;
+    const checkAndSync = async () => {
+      try {
+        const s = await agentStatus();
+        if (!active) return;
+        setAgentStatusInfo(s);
         setAgentInstalled(s.installed);
-        if (s.installed && token) {
-          void connectAgent(token);
+        const storedToken = localStorage.getItem("bc_token");
+        const storedRefresh = localStorage.getItem("bc_refresh_token");
+        if (s.installed && !s.tracking && storedToken) {
+          await connectAgent(storedToken, storedRefresh || undefined);
+          const updated = await agentStatus();
+          if (active) {
+            setAgentStatusInfo(updated);
+            setAgentInstalled(updated.installed);
+          }
         }
-      }).catch(() => {
-        setAgentInstalled(false);
-      });
-    }
-  }, [token]);
+      } catch {
+        if (active) {
+          setAgentInstalled(false);
+          setAgentStatusInfo({ installed: false, tracking: false });
+        }
+      }
+    };
+
+    void checkAndSync();
+    const intervalMs = agentStatusInfo.tracking ? 20000 : 4000;
+    const timer = setInterval(() => {
+      void checkAndSync();
+    }, intervalMs);
+
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [agentStatusInfo.tracking, token]);
 
   const { data, refetch, isFetching } = useQuery({
     queryKey: ["dashboard", token],
@@ -302,6 +333,61 @@ function Dashboard() {
           />
         )}
 
+        {agentStatusInfo.tracking && (
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm text-foreground">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3 w-3">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500"></span>
+              </span>
+              <div>
+                <strong className="text-emerald-700 dark:text-emerald-300">PC Wellness Companion: Active & Tracking</strong>
+                <p className="text-xs text-muted-foreground">
+                  Recording keystroke cadence and window switches for {agentStatusInfo.email || "your account"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-800 dark:text-emerald-200">
+                Connected
+              </span>
+            </div>
+          </div>
+        )}
+
+        {agentStatusInfo.installed && !agentStatusInfo.tracking && (
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-3.5 text-sm text-foreground">
+            <div className="flex items-center gap-3">
+              <Sparkles className="size-5 shrink-0 text-amber-500" />
+              <div>
+                <strong>MindEase PC Agent is open:</strong> Connect this browser session to start background tracking.
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  const tk = localStorage.getItem("bc_token");
+                  const rf = localStorage.getItem("bc_refresh_token");
+                  if (tk) {
+                    const res = await connectAgent(tk, rf || undefined);
+                    if (res.ok) {
+                      toast.success("PC Tracking activated!");
+                      const s = await agentStatus();
+                      setAgentStatusInfo(s);
+                    } else {
+                      connectAgentViaDeepLink(tk, rf || undefined);
+                    }
+                  }
+                }}
+                className="rounded-full bg-amber-500 px-4 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-amber-600"
+              >
+                Sync & Connect Agent
+              </button>
+            </div>
+          </div>
+        )}
+
         {agentInstalled === false && !dismissAgentBanner && (
           <div className="flex flex-col gap-2 rounded-2xl border border-clay-purple/40 bg-clay-purple/10 px-5 py-3.5 text-sm text-foreground">
             <div className="flex flex-wrap items-center justify-between gap-4">
@@ -328,6 +414,17 @@ function Dashboard() {
                 </a>
                 <button
                   type="button"
+                  onClick={() => {
+                    const tk = localStorage.getItem("bc_token");
+                    const rf = localStorage.getItem("bc_refresh_token");
+                    if (tk) connectAgentViaDeepLink(tk, rf || undefined);
+                  }}
+                  className="rounded-full border border-clay-purple/50 px-3 py-1.5 text-xs font-semibold text-clay-purple hover:bg-clay-purple/10"
+                >
+                  1-Click Connect
+                </button>
+                <button
+                  type="button"
                   onClick={() => setDismissAgentBanner(true)}
                   className="text-xs font-semibold text-muted-foreground hover:text-foreground"
                 >
@@ -336,7 +433,7 @@ function Dashboard() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              💡 <em>Note:</em> If Chrome/Edge shows &ldquo;Unverified/suspicious download blocked&rdquo;, click <strong>Download Agent (.zip)</strong> or open Downloads (<kbd className="rounded border border-border px-1">Ctrl+J</kbd>) and select <strong>Keep anyway</strong>.
+              💡 <em>Tip:</em> Downloading <strong>.zip</strong> avoids browser download warnings. Extract and double-click <code>MindEaseAgent.exe</code> to start tracking.
             </p>
           </div>
         )}

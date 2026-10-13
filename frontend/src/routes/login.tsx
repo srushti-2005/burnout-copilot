@@ -48,6 +48,9 @@ function LoginPage() {
     if (r.success && r.uid && r.access_token) {
       localStorage.setItem("bc_uid", r.uid);
       localStorage.setItem("bc_token", r.access_token);
+      if (r.refresh_token) {
+        localStorage.setItem("bc_refresh_token", r.refresh_token);
+      }
       try {
         sessionStorage.setItem("me_splash", "1");
       } catch {

@@ -21,7 +21,7 @@ Copy-Item ..\backend\src\data\tracker.py .\tracker.py -Force
 $src = Get-Content .\mindease_agent.py -Raw
 Set-Content .\_build_agent.py $src -Encoding UTF8
 
-python -m PyInstaller --onefile --noconsole --clean --name MindEaseAgent .\_build_agent.py
+python -m PyInstaller --onefile --noconsole --clean --name MindEaseAgent --hidden-import=tkinter .\_build_agent.py
 
 New-Item -ItemType Directory -Force ..\frontend\public\downloads | Out-Null
 Copy-Item .\dist\MindEaseAgent.exe ..\frontend\public\downloads\MindEaseAgent.exe -Force

@@ -10,10 +10,13 @@ Only counts: how many keys you press per minute (never which keys), how often yo
 2. **MindEaseAgent.exe** will automatically begin downloading in your browser:
    - If prompted by your browser or Windows SmartScreen, click **Keep** / **More info** -> **Run anyway**.
    - If Smart App Control is enabled on your Windows edition and blocks unsigned apps, see the Smart App Control note below.
-3. Open your `Downloads` folder and double-click **`MindEaseAgent.exe`**.
-   - A box appears saying *"MindEase agent is installed and running."*
-   - It will now run silently in the background and auto-start with Windows.
-4. If Chrome or Edge asks for permission to **"access devices on your local network"**, click **Allow**. This enables the web app to connect to the local tracking agent.
+3. Open your `Downloads` folder and double-click **`MindEaseAgent.exe`** (or extract **`MindEaseAgent.zip`**).
+   - A box appears confirming *"MindEase agent is installed and running."*
+   - Double-clicking the app anytime opens the **MindEase Companion Window** showing live tracking status and sign-in controls.
+   - It runs in the background and auto-starts with Windows.
+4. On the MindEase web dashboard:
+   - Within seconds of starting the agent, you will see a green badge: **"PC Wellness Companion: Active & Tracking"**.
+   - If needed, click **"1-Click Connect"** to link your account instantly.
 
 ---
 
