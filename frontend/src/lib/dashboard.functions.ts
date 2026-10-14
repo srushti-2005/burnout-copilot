@@ -40,6 +40,13 @@ export const resetPassword = createServerFn({ method: "POST" })
     return apiReset(data.email);
   });
 
+export const refreshUserToken = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ refreshToken: z.string().min(10) }).parse(d))
+  .handler(async ({ data }) => {
+    const { apiRefreshToken } = await import("./dashboard.server");
+    return apiRefreshToken(data.refreshToken);
+  });
+
 /**
  * Authenticated proxy to FastAPI. The path is allow-listed to /twin,
  * /focus/..., and /interventions/... only, so this can't be used to

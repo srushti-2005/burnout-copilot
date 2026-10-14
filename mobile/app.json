@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "burnout-mobile",
+    "name": "MindEase",
     "slug": "burnout-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,9 +8,11 @@
     "scheme": "burnoutmobile",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.divyadesai.mindease",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.divyadesai.mindease",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -38,6 +40,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "16dc9a11-d2b5-4f61-98b7-31e9c630f910"
+      }
     }
   }
 }

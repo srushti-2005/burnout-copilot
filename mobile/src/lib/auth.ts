@@ -1,10 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from './config';
+import { supabase } from './supabase';
 
 const KEY = 'burnout_auth_v1';
 
 export type AuthUser = { uid: string; email: string; display_name?: string | null };
-type AuthState = { token: string; user: AuthUser } | null;
+export type AuthState = { token: string; refreshToken?: string | null; user: AuthUser } | null;
 
 let state: AuthState = null;
 let loaded = false;
@@ -15,6 +16,14 @@ async function load() {
   try {
     const raw = await AsyncStorage.getItem(KEY);
     state = raw ? JSON.parse(raw) : null;
+    if (state?.token && state?.refreshToken) {
+      await supabase.auth
+        .setSession({
+          access_token: state.token,
+          refresh_token: state.refreshToken,
+        })
+        .catch(() => {});
+    }
   } catch {
     state = null;
   }
@@ -28,7 +37,9 @@ function notify() {
 
 export function onAuthChange(cb: (s: AuthState) => void) {
   listeners.add(cb);
-  return () => { listeners.delete(cb); };
+  return () => {
+    listeners.delete(cb);
+  };
 }
 
 export async function getAuthState(): Promise<AuthState> {
@@ -58,38 +69,116 @@ async function post(path: string, body: object) {
   return { ok: res.ok, out };
 }
 
-export async function signIn(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
-  const { ok, out } = await post('/auth/login', { email, password });
+export async function signIn(
+  email: string,
+  password: string
+): Promise<{ ok: boolean; error?: string }> {
+  const { ok, out } = await post('/auth/login', {
+    email,
+    password,
+    include_refresh_token: true,
+  });
   if (!ok || !out?.success || !out?.access_token) {
     return { ok: false, error: out?.error ?? 'Invalid email or password.' };
   }
-  await persist({ token: out.access_token, user: { uid: out.uid, email: out.email, display_name: out.display_name } });
+  const nextState: AuthState = {
+    token: out.access_token,
+    refreshToken: out.refresh_token ?? null,
+    user: { uid: out.uid, email: out.email, display_name: out.display_name },
+  };
+  await persist(nextState);
+
+  // Synchronize Supabase JS client session so table operations are fully authenticated
+  if (out.access_token && out.refresh_token) {
+    await supabase.auth
+      .setSession({
+        access_token: out.access_token,
+        refresh_token: out.refresh_token,
+      })
+      .catch(() => {});
+  }
+
   return { ok: true };
 }
 
 export async function signUp(
-  email: string, password: string, name: string, age: number
+  email: string,
+  password: string,
+  name: string,
+  age: number
 ): Promise<{ ok: boolean; error?: string; needsConfirmation?: boolean }> {
-  const { ok, out } = await post('/auth/signup', { email, password, name, age });
+  const { ok, out } = await post('/auth/signup', {
+    email,
+    password,
+    name,
+    age,
+    include_refresh_token: true,
+  });
 
   if (!ok || !out?.success) {
-    const raw: string = out?.error ?? out?.detail?.[0]?.msg ?? 'Could not create account.';
+    const raw: string =
+      out?.error ?? out?.detail?.[0]?.msg ?? 'Could not create account.';
     return { ok: false, error: raw };
   }
   if (out.access_token) {
-    await persist({ token: out.access_token, user: { uid: out.uid, email: out.email, display_name: out.display_name } });
+    const nextState: AuthState = {
+      token: out.access_token,
+      refreshToken: out.refresh_token ?? null,
+      user: { uid: out.uid, email: out.email, display_name: out.display_name },
+    };
+    await persist(nextState);
+
+    if (out.access_token && out.refresh_token) {
+      await supabase.auth
+        .setSession({
+          access_token: out.access_token,
+          refresh_token: out.refresh_token,
+        })
+        .catch(() => {});
+    }
     return { ok: true };
   }
-  // Signup succeeded but no token was returned — this means the account
-  // needs email confirmation before it can log in.
-  return { ok: false, needsConfirmation: true, error: 'Check your email to confirm your account, then log in.' };
+  return {
+    ok: false,
+    needsConfirmation: true,
+    error: 'Check your email to confirm your account, then log in.',
+  };
 }
 
-export async function resetPassword(email: string): Promise<{ ok: boolean; error?: string }> {
+export async function refreshToken(): Promise<string | null> {
+  const s = await load();
+  const rf = s?.refreshToken;
+  if (!rf) return null;
+  const { ok, out } = await post('/auth/refresh', { refresh_token: rf });
+  if (ok && out?.success && out?.access_token) {
+    await persist({
+      token: out.access_token,
+      refreshToken: out.refresh_token || rf,
+      user: s.user,
+    });
+    if (out.refresh_token) {
+      await supabase.auth
+        .setSession({
+          access_token: out.access_token,
+          refresh_token: out.refresh_token,
+        })
+        .catch(() => {});
+    }
+    return out.access_token;
+  }
+  return null;
+}
+
+export async function resetPassword(
+  email: string
+): Promise<{ ok: boolean; error?: string }> {
   const { ok, out } = await post('/auth/reset', { email });
-  return ok && out?.success ? { ok: true } : { ok: false, error: out?.error ?? 'Could not send reset email.' };
+  return ok && out?.success
+    ? { ok: true }
+    : { ok: false, error: out?.error ?? 'Could not send reset email.' };
 }
 
 export async function signOut() {
+  await supabase.auth.signOut().catch(() => {});
   await persist(null);
 }

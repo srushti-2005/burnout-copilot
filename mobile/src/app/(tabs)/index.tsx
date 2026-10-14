@@ -94,8 +94,22 @@ export default function Home() {
             </Body>
           </View>
         </View>
-        <MetricBar icon="pulse" label="Mental load" value={asPct(dash?.stress_level)} color={accent.coral} />
-        <MetricBar icon="flash" label="Energy" value={asPct(dash?.energy_level)} color={accent.teal} />
+        <MetricBar
+          icon="pulse"
+          label="Mental load"
+          value={
+            typeof dash?.stress_level === 'string'
+              ? (dash.stress_level.toLowerCase() === 'high' || dash.stress_level.toLowerCase() === 'elevated' ? 75 : dash.stress_level.toLowerCase() === 'medium' || dash.stress_level.toLowerCase() === 'moderate' ? 45 : 22)
+              : (asPct(dash?.stress_level) ?? Math.round(Math.min(1, Math.max(0.08, cli)) * 100))
+          }
+          color={accent.coral}
+        />
+        <MetricBar
+          icon="flash"
+          label="Energy"
+          value={asPct(dash?.energy_level) ?? Math.max(25, Math.min(85, Math.round(84 - (cli * 35))))}
+          color={accent.teal}
+        />
       </GlassCard>
 
       {/* Plan for today */}
@@ -111,10 +125,12 @@ export default function Home() {
                 <Body>{avoid}</Body>
               </View>
             ) : null}
-            <View style={{ backgroundColor: accent.teal + '1f', borderRadius: 14, padding: 12 }}>
-              <Text style={{ color: accent.teal, fontWeight: '800', fontSize: 12 }}>DO THIS</Text>
-              <Body>{lead.doThis}</Body>
-            </View>
+            {lead?.doThis ? (
+              <View style={{ backgroundColor: accent.teal + '1f', borderRadius: 14, padding: 12 }}>
+                <Text style={{ color: accent.teal, fontWeight: '800', fontSize: 12 }}>DO THIS</Text>
+                <Body>{lead.doThis}</Body>
+              </View>
+            ) : null}
             {next?.action ? (
               <View style={{ marginTop: 4, gap: 8 }}>
                 <Muted>Best next step: {next.title}</Muted>

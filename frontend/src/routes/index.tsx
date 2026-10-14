@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Calendar, Heart, Moon, RefreshCw, Shield, Sparkles } from "lucide-react";
 
-import { callApi, getDashboard } from "@/lib/dashboard.functions";
+import { callApi, getDashboard, refreshUserToken } from "@/lib/dashboard.functions";
 import { disconnectAgent, agentStatus, connectAgent, connectAgentViaDeepLink } from "@/lib/agent";
 import { toast } from "sonner";
 import { emptyDashboard } from "@/lib/dashboard.fallback";
@@ -30,7 +30,7 @@ import { FairLoadCard } from "@/components/dashboard/FeatureCards";
 
 type ViewId = "home" | "digital-twin" | "recommendations" | "analytics" | "ai-insights" | "reports";
 
-const BREAK_POPUP_CLI_THRESHOLD = 30;
+const BREAK_POPUP_CLI_THRESHOLD = 10;
 
 function formatToday(): string {
   return new Date().toLocaleDateString(undefined, {
@@ -74,6 +74,35 @@ function Dashboard() {
   const [dismissAgentBanner, setDismissAgentBanner] = useState(false);
   const fetchDashboard = useServerFn(getDashboard);
   const callApiFn = useServerFn(callApi);
+  const refreshTokenFn = useServerFn(refreshUserToken);
+
+  const silentRefreshToken = useCallback(async (): Promise<string | null> => {
+    const rf = localStorage.getItem("bc_refresh_token");
+    if (!rf) return null;
+    try {
+      const res = await refreshTokenFn({ data: { refreshToken: rf } });
+      if (res?.success && res.access_token) {
+        localStorage.setItem("bc_token", res.access_token);
+        if (res.refresh_token) {
+          localStorage.setItem("bc_refresh_token", res.refresh_token);
+        }
+        setToken(res.access_token);
+        return res.access_token;
+      }
+    } catch {
+      // Proactive background refresh failed; keep existing screen state and never auto-logout
+    }
+    return null;
+  }, [refreshTokenFn]);
+
+  // Proactively refresh the access token every 15 minutes so sessions stay permanently alive
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(() => {
+      void silentRefreshToken();
+    }, 15 * 60_000);
+    return () => clearInterval(interval);
+  }, [token, silentRefreshToken]);
 
   // ── Buzzer: Web Audio API, no external sound file. Browsers block audio
   // until the page has received at least one real user interaction (a
@@ -192,10 +221,15 @@ function Dashboard() {
   const { data: twinData, isLoading: twinLoading } = useQuery({
     queryKey: ["twin", token],
     queryFn: async (): Promise<TwinPayload | null> => {
-      const res = await callApiFn({ data: { token: token!, method: "GET", path: "/twin" } });
+      let activeTok = token!;
+      let res = await callApiFn({ data: { token: activeTok, method: "GET", path: "/twin" } });
       if (res.status === 401) {
-        endSession();
-        return null;
+        // Attempt silent refresh instead of kicking the user out
+        const nextTok = await silentRefreshToken();
+        if (nextTok) {
+          activeTok = nextTok;
+          res = await callApiFn({ data: { token: activeTok, method: "GET", path: "/twin" } });
+        }
       }
       if (res.status < 200 || res.status >= 300) return null;
       try {
@@ -306,7 +340,7 @@ function Dashboard() {
           <FocusProtection
             token={token}
             recommended={focusRecommended}
-            onSessionExpired={endSession}
+            onSessionExpired={() => { void silentRefreshToken(); }}
             initialMinutes={focusInitialMinutes}
             panelOpen={showFocusPanel}
             onRequestClose={() => setShowFocusPanel(false)}
@@ -317,7 +351,7 @@ function Dashboard() {
         {token && (
           <ActivityCheckInProvider
             token={token}
-            onSessionExpired={endSession}
+            onSessionExpired={() => { void silentRefreshToken(); }}
             paused={showBreakPopup}
           />
         )}
@@ -451,7 +485,7 @@ function Dashboard() {
               twin={twinData ?? null}
               token={token}
               onStartFocus={openFocusPanel}
-              onSessionExpired={endSession}
+              onSessionExpired={() => { void silentRefreshToken(); }}
               reloadKey={interventionsReloadKey}
               onNavigate={setCurrentView}
             />
@@ -487,7 +521,7 @@ function Dashboard() {
               <InterventionsPanel
                 token={token}
                 onStartFocus={openFocusPanel}
-                onSessionExpired={endSession}
+                onSessionExpired={() => { void silentRefreshToken(); }}
                 reloadKey={interventionsReloadKey}
               />
 

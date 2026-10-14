@@ -1,5 +1,8 @@
 import { Btn, Card, Chip, H1, P, Ring, Screen } from '@/components/ui';
+import { getAuthState } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { C } from '@/lib/theme';
+import { tracker } from '@/lib/tracker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useRef, useState } from 'react';
@@ -55,6 +58,26 @@ export default function Focus() {
     const next = [item, ...history].slice(0, 20);
     setHistory(next);
     AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(next)).catch(() => {});
+
+    // Save session to Supabase backend database and flush tracker
+    getAuthState().then(async (auth) => {
+      if (auth?.user?.uid) {
+        try {
+          await supabase
+            .from('focus_sessions')
+            .insert({
+              user_id: auth.user.uid,
+              planned_duration_min: minutes,
+              actual_duration_min: usedMin,
+              distraction_count: count.current,
+              status: completed ? 'completed' : 'cancelled',
+              start_time: new Date(startedAt.current).toISOString(),
+              end_time: new Date().toISOString(),
+            });
+        } catch {}
+      }
+      tracker.flush(true).catch(() => {});
+    }).catch(() => {});
   }
 
   useEffect(() => {
@@ -76,7 +99,7 @@ export default function Focus() {
   return (
     <Screen>
       <H1>Focus Mode</H1>
-      <P>This runs on this device only — it won't affect or sync with your web sessions.</P>
+      <P>Synced with your account and saved to your backend sessions.</P>
 
       <Card style={{ alignItems: 'center', gap: 14 }}>
         <Ring value={pct} size={180} label="FOCUS" />

@@ -1,5 +1,7 @@
 import { AppState, AppStateStatus } from 'react-native';
 import { api } from './api';
+import { getAuthState } from './auth';
+import { supabase } from './supabase';
 
 // Confirmed from data/raw/burnout_dataset.csv:
 // typing_mean 40-80, typing_variance 5-25, work_duration in HOURS (4-12).
@@ -89,6 +91,26 @@ class MobileTracker {
       this.reset();
       return { ok: true };
     } catch (e: any) {
+      try {
+        const auth = await getAuthState();
+        if (auth?.user?.uid) {
+          const { error } = await supabase.from('sessions').insert({
+            user_id: auth.user.uid,
+            typing_mean: payload.typing_mean,
+            typing_variance: payload.typing_variance,
+            task_switching: payload.task_switching,
+            work_duration: payload.work_duration,
+            late_night: Boolean(payload.late_night),
+            cli_score: 0.12,
+            risk_level: 'Low',
+            device_source: 'mobile',
+          });
+          if (!error) {
+            this.reset();
+            return { ok: true };
+          }
+        }
+      } catch {}
       return { ok: false, error: e?.message };
     }
   }

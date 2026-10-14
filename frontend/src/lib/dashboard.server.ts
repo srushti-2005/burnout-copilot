@@ -59,6 +59,14 @@ export async function apiReset(email: string): Promise<AuthResult> {
   }
 }
 
+export async function apiRefreshToken(refreshToken: string): Promise<AuthResult> {
+  try {
+    return await post<AuthResult>("/auth/refresh", { refresh_token: refreshToken });
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
 /**
  * Dashboard is identity-scoped by the verified Supabase token only — there
  * is no uid query param, so nobody can read another user's dashboard by

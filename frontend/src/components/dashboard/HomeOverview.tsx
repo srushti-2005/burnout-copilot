@@ -145,7 +145,7 @@ export function HomeOverview({ name, dashboard, twin, token, onStartFocus, onSes
           : "Trending lower than usual recently.";
 
   const mentalLoad = dashboard.stress_level || (percent <= 25 ? "Low" : percent <= 60 ? "Moderate" : "Elevated");
-  const energy = dashboard.energy_level || `${Math.max(20, Math.min(92, Math.round(90 - (percent * 0.45))))}%`;
+  const energy = dashboard.energy_level || `${Math.max(25, Math.min(85, Math.round(84 - (percent * 0.4))))}%`;
 
   const now = new Date();
   const dateLine = `${now.toLocaleDateString(undefined, { weekday: "long" })} · ${now.toLocaleDateString(undefined, { month: "long", day: "numeric" })}`;

@@ -18,7 +18,8 @@ export function RiskGauge({ cli, category, stress, energy, recovery, headline }:
   const riskCategory =
     category || (percent <= 25 ? "Low" : percent <= 70 ? "Medium" : "High");
   const stressValue = stress || `${percent}%`;
-  const energyValue = energy || `${100 - percent}%`;
+  const energyValue =
+    energy || `${Math.max(25, Math.min(85, Math.round(84 - percent * 0.4)))}%`;
   const recoveryValue =
     recovery ||
     (percent <= 25 ? "Good" : percent <= 70 ? "Moderate" : "Needs attention");

@@ -151,18 +151,18 @@ def _compute_cli_for_row(
     instant_raw = calculate_cli(norm.iloc[0], get_training_weights())
 
     # 1. Passive reading / study floor:
-    # A user sitting at their computer reading or studying maintains a realistic baseline load (~0.08 - 0.10)
-    # even without active keystrokes or app switches. It should not collapse to 0.0 while in an active session.
-    reading_floor = 0.08
-    if instant_raw < reading_floor and float(row.get("work_duration", 0) or 0) > 0:
+    # A user sitting at their computer reading or studying maintains a realistic baseline load (~0.12)
+    # even without active keystrokes or app switches. It should never collapse to 0.0 during active daytime work.
+    reading_floor = 0.12
+    if instant_raw < reading_floor:
         instant_raw = reading_floor
 
-    instant_adjusted = round(min(1.0, max(0.0, instant_raw * context_multiplier)), 4)
+    instant_adjusted = round(min(1.0, max(0.08, instant_raw * context_multiplier)), 4)
 
     # Determine previous fatigue baseline
     now = datetime.now(timezone.utc)
-    base_raw = 0.0
-    base_adjusted = 0.0
+    base_raw = 0.08
+    base_adjusted = 0.08
     delta_hours = 0.0
 
     if prev_session:
@@ -173,35 +173,34 @@ def _compute_cli_for_row(
                 delta_hours = max(0.0, (now - prev_dt).total_seconds() / 3600.0)
                 is_earlier_day = (prev_dt.date() < now.date())
 
-                # Morning reset: only after overnight sleep (>= 6 hours gap on an earlier day)
+                # Morning reset: only after overnight sleep (>= 6 hours gap on an earlier calendar day)
                 if is_earlier_day and delta_hours >= 6.0:
-                    base_raw = 0.0
-                    base_adjusted = 0.0
-                elif delta_hours >= 7.0:
-                    base_raw = 0.0
-                    base_adjusted = 0.0
+                    base_raw = 0.08
+                    base_adjusted = 0.08
                 else:
-                    # Intra-day continuity: gentle exponential rest decay for break time
-                    # e^(-0.15 * delta_hours). Over 10-15 minutes of rest, retains ~97% of fatigue.
-                    decay = math.exp(-0.15 * delta_hours)
-                    base_raw = float(prev_session.get("cli_score_raw") or prev_session.get("cli_score") or 0.0) * decay
-                    base_adjusted = float(prev_session.get("cli_score") or 0.0) * decay
+                    # Intra-day continuity: gentle, realistic exponential rest decay for break time
+                    # e^(-0.04 * delta_hours). Over 10-15 minutes of rest, retains ~99% of fatigue.
+                    # Never collapses below 0.08 while user is active on the same day.
+                    decay = math.exp(-0.04 * delta_hours)
+                    prev_cli = float(prev_session.get("cli_score") or 0.08)
+                    prev_raw = float(prev_session.get("cli_score_raw") or prev_cli)
+                    base_raw = max(0.08, prev_raw * decay)
+                    base_adjusted = max(0.08, prev_cli * decay)
             except Exception:
-                base_raw = 0.0
-                base_adjusted = 0.0
+                base_raw = 0.08
+                base_adjusted = 0.08
 
-    # 2. Asymmetric Fatigue/Recovery Update with Step-Rate Limiting:
-    # Requirement: The score should increase or decrease gradually (e.g. by 1% to 2% at a time),
+    # 2. Asymmetric Fatigue/Recovery Update with Strict Gradual Step Limiting:
+    # Requirement: The score should increase or decrease gradually (by 1% to 2% at a time),
     # never experiencing steep, sudden drops (like going from 29 straight to 0).
     if prev_session and base_adjusted > 0.0:
-        # Scale maximum allowed drop/gain with elapsed time (~0.015 drop per 2-minute interval)
-        intervals = max(1.0, delta_hours * 30.0)
-        max_decrease = max(0.012, 0.015 * intervals)
-        max_increase = max(0.025, 0.030 * intervals)
+        # Scale maximum allowed drop/gain gently (1.0% to 1.5% maximum change per step)
+        max_decrease = min(0.020, max(0.010, 0.015 * min(1.5, max(1.0, delta_hours * 6.0))))
+        max_increase = min(0.030, max(0.015, 0.020 * min(1.5, max(1.0, delta_hours * 6.0))))
 
         is_break = (activity_type or "").lower() == "break"
-        alpha_down = 0.16 if is_break else 0.08
-        alpha_up = 0.25
+        alpha_down = 0.10 if is_break else 0.05
+        alpha_up = 0.20
 
         if instant_adjusted >= base_adjusted:
             target_adj = base_adjusted + alpha_up * (instant_adjusted - base_adjusted)
@@ -218,11 +217,11 @@ def _compute_cli_for_row(
         cli_raw = max(base_raw - max_decrease, min(base_raw + max_increase, target_raw))
     else:
         # Cold start (first session of day)
-        cli_adjusted = instant_adjusted
-        cli_raw = instant_raw
+        cli_adjusted = max(0.08, instant_adjusted)
+        cli_raw = max(0.08, instant_raw)
 
-    cli_adjusted = round(min(1.0, max(0.0, cli_adjusted)), 3)
-    cli_raw = round(min(1.0, max(0.0, cli_raw)), 3)
+    cli_adjusted = round(min(1.0, max(0.08, cli_adjusted)), 3)
+    cli_raw = round(min(1.0, max(0.08, cli_raw)), 3)
 
     risk = categorize_cli(cli_adjusted, age=age)
     return cli_raw, cli_adjusted, risk

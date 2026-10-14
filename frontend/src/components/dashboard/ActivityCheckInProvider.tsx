@@ -3,7 +3,7 @@ import { ActivityCheckIn } from "./ActivityCheckIn";
 import type { ActivityCheckInResult } from "@/lib/dashboard.types";
 
 // TESTING: fires ~30-60s after mount. Set back to 40 before you submit.
-const CHECKIN_INTERVAL_MIN = 25;
+const CHECKIN_INTERVAL_MIN = 10;
 const POLL_MS = 15_000; // check every 15s so a 1-min interval isn't stuck waiting a full 60s tick
 
 interface Props {

@@ -168,8 +168,8 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
         return {
             "ok": True,
             "user": _user_profile(user_id),
-            "cli": 0, "cli_category": "", "rest_pct": 0, "focus_pct": 0, "balance_pct": 0,
-            "stress_level": "Low", "energy_level": "90%",
+            "cli": 0.08, "cli_category": "Low", "rest_pct": 85, "focus_pct": 80, "balance_pct": 85,
+            "stress_level": "Low", "energy_level": "82%",
             "late_night_count": 0, "session_count": 0, "avg_duration": 0,
             "latest": None, "trend": [], "forecast": [], "suggestions": [],
             "drivers": [], "compare": [],
@@ -190,30 +190,28 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
     delta_hours = max(0.0, (now - latest_dt).total_seconds() / 3600.0)
     is_earlier_day = (latest_dt.date() < now.date())
 
-    stored_cli = float(latest.get("cli_score") or 0.0)
+    stored_cli = max(0.08, float(latest.get("cli_score") or 0.08))
 
     # Morning reset: only after overnight sleep (>= 6 hours gap on an earlier calendar day)
     if is_earlier_day and delta_hours >= 6.0:
-        current_cli = 0.0
-        current_category = "low"
-    elif delta_hours >= 7.0:
-        current_cli = 0.0
-        current_category = "low"
+        current_cli = 0.08
+        current_category = "Low"
     else:
-        # Same day: slow, continuous rest decay (e^(-0.15 * delta_hours))
-        # Rate-limited so live refreshing decays smoothly by at most 1-2% per 2-minute interval
-        decay = math.exp(-0.15 * delta_hours)
-        decayed = stored_cli * decay
-        max_drop = 0.015 * max(1.0, (delta_hours * 30.0))
-        current_cli = round(max(0.0, max(stored_cli - max_drop, decayed)), 3)
+        # Same day: slow, continuous, realistic rest decay (e^(-0.04 * delta_hours))
+        # Rate-limited so live refreshing decays smoothly by at most 1-2%
+        decay = math.exp(-0.04 * delta_hours)
+        decayed = max(0.08, stored_cli * decay)
+        max_drop = min(0.020, 0.015 * min(1.5, max(1.0, delta_hours * 6.0)))
+        current_cli = round(max(0.08, max(stored_cli - max_drop, decayed)), 3)
         current_category = categorize_cli(current_cli)
 
-    # Realistic Energy and Mental Load calculation
-    # Energy is not a naive (100 - CLI); it factors in cumulative work hours and current cognitive strain.
-    # Morning start is ~90-92% (fresh), gently expending through the workday.
+    # Realistic circadian Energy and Mental Load calculation
+    # Energy is not a naive (100 - CLI); a conscious human being reading or working is never at 100%.
+    # Factored with circadian hour of day, cumulative work duration, and cognitive load.
     total_work_hours = sum(float(r.get("work_duration") or 0.0) for r in rows[:8])
-    base_energy = 90.0
-    energy_val = round(max(20.0, min(92.0, base_energy - (total_work_hours * 3.0) - (current_cli * 40.0))))
+    hour = now.hour
+    circadian_base = 84.0 - max(0.0, (hour - 8) * 1.2) if 8 <= hour <= 23 else 70.0
+    energy_val = round(max(25.0, min(85.0, circadian_base - (total_work_hours * 2.5) - (current_cli * 25.0))))
     energy_str = f"{energy_val}%"
 
     if current_cli <= 0.25:

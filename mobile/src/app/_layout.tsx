@@ -2,6 +2,7 @@ import { IntroSplash } from '@/components/mindease/IntroSplash';
 import { api } from '@/lib/api';
 import { getAuthState, onAuthChange } from '@/lib/auth';
 import { MindEaseThemeProvider } from '@/lib/mindease-theme';
+import { tracker } from '@/lib/tracker';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
@@ -16,14 +17,22 @@ export default function RootLayout() {
       const s = await getAuthState();
       setAuthed(!!s);
       if (s) {
-        // Confirms the stored token still actually works. If it doesn't,
-        // api() above signs the user out automatically, and the listener
-        // below immediately sends them back to Login.
         api('/auth/profile').catch(() => {});
       }
     })();
     return onAuthChange((s) => setAuthed(!!s));
   }, []);
+
+  useEffect(() => {
+    if (authed) {
+      tracker.startTracking();
+    } else {
+      tracker.stopTracking();
+    }
+    return () => {
+      tracker.stopTracking();
+    };
+  }, [authed]);
 
   useEffect(() => {
     if (authed === null) return;
