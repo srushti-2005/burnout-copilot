@@ -30,7 +30,7 @@ import { FairLoadCard } from "@/components/dashboard/FeatureCards";
 
 type ViewId = "home" | "digital-twin" | "recommendations" | "analytics" | "ai-insights" | "reports";
 
-const BREAK_POPUP_CLI_THRESHOLD = 10;
+const BREAK_POPUP_CLI_THRESHOLD = 0.15;
 
 function formatToday(): string {
   return new Date().toLocaleDateString(undefined, {
