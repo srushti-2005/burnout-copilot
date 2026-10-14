@@ -41,5 +41,19 @@ def compute_cli_score(signals: dict, age: int | None = None) -> tuple[float, str
     row = pd.DataFrame([signals])
     row_norm = normalize_with_fixed_bounds(row, bounds).iloc[0]
     cli = calculate_cli(row_norm, weights)
+
+    has_activity = (
+        float(signals.get("work_duration", 0) or 0) > 0 or
+        float(signals.get("typing_mean", 0) or 0) > 0 or
+        float(signals.get("task_switching", 0) or 0) > 0 or
+        bool(signals.get("late_night", 0))
+    )
+    if has_activity and cli < 0.08:
+        cli = round(0.08 + cli, 3)
+    elif has_activity:
+        cli = round(max(0.08, cli), 3)
+    else:
+        cli = round(max(0.0, cli), 3)
+
     category = categorize_cli(cli)
     return cli, category.lower()

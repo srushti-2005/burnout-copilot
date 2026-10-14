@@ -58,6 +58,7 @@ def create_session(payload: SessionIn, user_id: str = Depends(get_current_user_i
         # NEW — both default sensibly if an older row/pre-migration schema lacks them:
         cli_score_raw=saved.get("cli_score_raw"),
         context_multiplier=saved.get("context_multiplier", 1.0),
+        device_source=saved.get("device_source", "web"),
     )
 
 
@@ -85,6 +86,7 @@ def list_sessions(limit: int = 50, user_id: str = Depends(get_current_user_id)):
             # NEW:
             cli_score_raw=r.get("cli_score_raw"),
             context_multiplier=r.get("context_multiplier", 1.0),
+            device_source=r.get("device_source", "web"),
         )
         for r in result.data
     ]

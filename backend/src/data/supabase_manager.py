@@ -151,18 +151,25 @@ def _compute_cli_for_row(
     instant_raw = calculate_cli(norm.iloc[0], get_training_weights())
 
     # 1. Passive reading / study floor:
-    # A user sitting at their computer reading or studying maintains a realistic baseline load (~0.12)
-    # even without active keystrokes or app switches. It should never collapse to 0.0 during active daytime work.
-    reading_floor = 0.12
-    if instant_raw < reading_floor:
-        instant_raw = reading_floor
+    # A user working at their device maintains a realistic baseline load (~0.08 - 0.12)
+    # even with low keystrokes or app switches. Any real activity adds directly to this baseline.
+    has_activity = (
+        float(row.get("work_duration", 0) or 0) > 0 or
+        float(row.get("typing_mean", 0) or 0) > 0 or
+        float(row.get("task_switching", 0) or 0) > 0 or
+        bool(row.get("late_night", 0))
+    )
+    if has_activity and instant_raw < 0.08:
+        instant_raw = round(0.08 + instant_raw, 4)
+    elif has_activity:
+        instant_raw = max(0.08, instant_raw)
 
-    instant_adjusted = round(min(1.0, max(0.08, instant_raw * context_multiplier)), 4)
+    instant_adjusted = round(min(1.0, max(0.08 if has_activity else 0.0, instant_raw * context_multiplier)), 4)
 
     # Determine previous fatigue baseline
     now = datetime.now(timezone.utc)
-    base_raw = 0.08
-    base_adjusted = 0.08
+    base_raw = 0.08 if has_activity else 0.0
+    base_adjusted = 0.08 if has_activity else 0.0
     delta_hours = 0.0
 
     if prev_session:
@@ -175,20 +182,20 @@ def _compute_cli_for_row(
 
                 # Morning reset: only after overnight sleep (>= 6 hours gap on an earlier calendar day)
                 if is_earlier_day and delta_hours >= 6.0:
-                    base_raw = 0.08
-                    base_adjusted = 0.08
+                    base_raw = 0.08 if has_activity else 0.0
+                    base_adjusted = 0.08 if has_activity else 0.0
                 else:
                     # Intra-day continuity: gentle, realistic exponential rest decay for break time
                     # e^(-0.04 * delta_hours). Over 10-15 minutes of rest, retains ~99% of fatigue.
                     # Never collapses below 0.08 while user is active on the same day.
                     decay = math.exp(-0.04 * delta_hours)
-                    prev_cli = float(prev_session.get("cli_score") or 0.08)
+                    prev_cli = float(prev_session.get("cli_score") or (0.08 if has_activity else 0.0))
                     prev_raw = float(prev_session.get("cli_score_raw") or prev_cli)
-                    base_raw = max(0.08, prev_raw * decay)
-                    base_adjusted = max(0.08, prev_cli * decay)
+                    base_raw = max(0.08 if has_activity else 0.0, prev_raw * decay)
+                    base_adjusted = max(0.08 if has_activity else 0.0, prev_cli * decay)
             except Exception:
-                base_raw = 0.08
-                base_adjusted = 0.08
+                base_raw = 0.08 if has_activity else 0.0
+                base_adjusted = 0.08 if has_activity else 0.0
 
     # 2. Asymmetric Fatigue/Recovery Update with Strict Gradual Step Limiting:
     # Requirement: The score should increase or decrease gradually (by 1% to 2% at a time),
@@ -217,17 +224,24 @@ def _compute_cli_for_row(
         cli_raw = max(base_raw - max_decrease, min(base_raw + max_increase, target_raw))
     else:
         # Cold start (first session of day)
-        cli_adjusted = max(0.08, instant_adjusted)
-        cli_raw = max(0.08, instant_raw)
+        cli_adjusted = max(0.08, instant_adjusted) if has_activity else max(0.0, instant_adjusted)
+        cli_raw = max(0.08, instant_raw) if has_activity else max(0.0, instant_raw)
 
-    cli_adjusted = round(min(1.0, max(0.08, cli_adjusted)), 3)
-    cli_raw = round(min(1.0, max(0.08, cli_raw)), 3)
+    cli_adjusted = round(min(1.0, max(0.08 if has_activity else 0.0, cli_adjusted)), 3)
+    cli_raw = round(min(1.0, max(0.08 if has_activity else 0.0, cli_raw)), 3)
 
     risk = categorize_cli(cli_adjusted, age=age)
     return cli_raw, cli_adjusted, risk
 
 
 def save_session(uid: str, data: dict):
+    has_activity = (
+        float(data.get("work_duration", 0) or 0) > 0 or
+        float(data.get("typing_mean", 0) or 0) > 0 or
+        float(data.get("task_switching", 0) or 0) > 0 or
+        bool(data.get("late_night", 0))
+    )
+    initial_cli = 0.08 if has_activity else 0.0
     row = {
         "user_id":            uid,
         "typing_mean":        float(data.get("typing_mean", 0)),
@@ -235,10 +249,11 @@ def save_session(uid: str, data: dict):
         "task_switching":     int(data.get("task_switching", 0)),
         "work_duration":      float(data.get("work_duration", 0)),
         "late_night":         bool(data.get("late_night", 0)),
-        "cli_score":          0.0,
-        "cli_score_raw":      0.0,
+        "cli_score":          initial_cli,
+        "cli_score_raw":      initial_cli,
         "context_multiplier": 1.0,
         "risk_level":         "Low",
+        "device_source":      str(data.get("device_source") or "web"),
     }
 
     try:

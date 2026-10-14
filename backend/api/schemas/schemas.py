@@ -13,6 +13,7 @@ class SessionIn(BaseModel):
     work_duration: float
     late_night: int = Field(..., ge=0, le=1)
     timestamp_utc: Optional[datetime] = None
+    device_source: Optional[str] = "web"
 
 
 class SessionOut(BaseModel):
@@ -29,6 +30,7 @@ class SessionOut(BaseModel):
     baseline_deviation: dict = {}
     cli_score_raw: Optional[float] = None
     context_multiplier: float = 1.0
+    device_source: Optional[str] = "web"
 
 
 class PredictRequest(BaseModel):

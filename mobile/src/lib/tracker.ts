@@ -20,7 +20,7 @@ class MobileTracker {
   private sub?: { remove(): void };
   private running = false;
 
-  startTracking(flushMs = 5 * 60_000) {
+  startTracking(flushMs = 60_000) {
     if (this.running) return;
     this.running = true;
     this.reset();
@@ -31,11 +31,15 @@ class MobileTracker {
       } else {
         if (this.activeSince !== null) this.activeMs += Date.now() - this.activeSince;
         this.activeSince = null;
-        if (s === 'background') this.switches += 1;
+        if (s === 'background') {
+          this.switches += 1;
+          // Auto-flush current session immediately when app goes to background
+          void this.flush(true);
+        }
       }
     });
-    this.timer = setInterval(() => { this.flush(); }, flushMs);
-    this.seedTimer = setTimeout(() => { this.flush(true); }, 15_000);
+    this.timer = setInterval(() => { void this.flush(); }, flushMs);
+    this.seedTimer = setTimeout(() => { void this.flush(true); }, 10_000);
   }
 
   stopTracking() {
@@ -63,7 +67,9 @@ class MobileTracker {
 
   async flush(force = false): Promise<{ ok: boolean; error?: string }> {
     const mins = this.minutes();
-    if (!force && mins < 0.5) return { ok: false, error: 'not enough activity yet' };
+    if (!force && mins < 0.05 && this.switches === 0 && this.intervals.length === 0) {
+      return { ok: false, error: 'not enough activity yet' };
+    }
 
     const n = this.intervals.length;
     let typing_mean = TYPING_MEAN_DEFAULT;
@@ -77,43 +83,29 @@ class MobileTracker {
     }
 
     const hour = new Date().getHours();
+    const durationHours = Number(Math.max(0.01, mins / 60).toFixed(3));
     const payload = {
       typing_mean,
       typing_variance,
       task_switching: this.switches,
-      work_duration: Number((mins / 60).toFixed(3)), // minutes → HOURS to match dataset
+      work_duration: durationHours,
       late_night: hour >= 23 || hour < 5 ? 1 : 0,
       timestamp_utc: new Date().toISOString(),
       device_source: 'mobile',
     };
+
     try {
       await api('/sessions', { method: 'POST', body: JSON.stringify(payload) });
       this.reset();
       return { ok: true };
     } catch (e: any) {
-      try {
-        const auth = await getAuthState();
-        if (auth?.user?.uid) {
-          const { error } = await supabase.from('sessions').insert({
-            user_id: auth.user.uid,
-            typing_mean: payload.typing_mean,
-            typing_variance: payload.typing_variance,
-            task_switching: payload.task_switching,
-            work_duration: payload.work_duration,
-            late_night: Boolean(payload.late_night),
-            cli_score: 0.12,
-            risk_level: 'Low',
-            device_source: 'mobile',
-          });
-          if (!error) {
-            this.reset();
-            return { ok: true };
-          }
-        }
-      } catch {}
       return { ok: false, error: e?.message };
     }
   }
 }
 
 export const tracker = new MobileTracker();
+
+export async function flushTracker(): Promise<{ ok: boolean; error?: string }> {
+  return tracker.flush(true);
+}

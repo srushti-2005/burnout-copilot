@@ -12,6 +12,8 @@ import { accent, useMindEase } from '@/lib/mindease-theme';
 import { runAction } from '@/lib/nav';
 import { useLoad } from '@/lib/useLoad';
 import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
+import { tracker } from '@/lib/tracker';
 import { useRouter, type Href } from 'expo-router';
 import { Text, View } from 'react-native';
 
@@ -36,7 +38,9 @@ function MetricBar({ icon, label, value, color }: { icon: IconName; label: strin
 export default function Home() {
   const router = useRouter();
   const { c } = useMindEase();
+  const [syncing, setSyncing] = useState(false);
   const { data, error, loading, reload } = useLoad(async () => {
+    await tracker.flush(true).catch(() => {});
     const [ses, prof, cp] = await Promise.allSettled([
       api<any[]>('/sessions?limit=1'),
       api<any>('/auth/profile'),
@@ -202,6 +206,19 @@ export default function Home() {
           <Btn ghost style={{ flex: 1 }} title="Focus mode" onPress={() => router.push('/focus' as Href)} />
           <Btn ghost style={{ flex: 1 }} title="Profile" onPress={() => router.push('/settings' as Href)} />
         </View>
+        <Btn
+          ghost
+          title={syncing ? 'Syncing to Supabase...' : 'Sync session to Supabase'}
+          onPress={async () => {
+            setSyncing(true);
+            try {
+              await tracker.flush(true);
+              await reload();
+            } finally {
+              setSyncing(false);
+            }
+          }}
+        />
       </View>
     </Screen>
   );

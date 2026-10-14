@@ -94,17 +94,18 @@ _BOUNDS_CACHE = {}
 
 def get_training_bounds(path=DEFAULT_DATA_PATH):
     """
-    UNCHANGED. Returns the min/max of each raw behavioural feature from
-    the FULL training dataset -- the fixed reference frame for live
-    normalization.
+    Returns the min/max of each raw behavioural feature.
+    Lower bounds are set to 0.0 so that live sessions (which start from 0 hours
+    or few keystrokes/switches) are never clipped to 0.0 against artificial
+    multi-hour dataset minimums.
     """
     if path not in _BOUNDS_CACHE:
         df = load_data(path)
         _BOUNDS_CACHE[path] = {
-            "typing_mean":     (float(df["typing_mean"].min()),     float(df["typing_mean"].max())),
-            "typing_variance": (float(df["typing_variance"].min()), float(df["typing_variance"].max())),
-            "task_switching":  (float(df["task_switching"].min()),  float(df["task_switching"].max())),
-            "work_duration":   (float(df["work_duration"].min()),   float(df["work_duration"].max())),
+            "typing_mean":     (0.0, float(df["typing_mean"].max())),
+            "typing_variance": (0.0, float(df["typing_variance"].max())),
+            "task_switching":  (0.0, float(df["task_switching"].max())),
+            "work_duration":   (0.0, float(df["work_duration"].max())),
         }
     return _BOUNDS_CACHE[path]
 
