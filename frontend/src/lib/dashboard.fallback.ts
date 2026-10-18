@@ -25,3 +25,5 @@ export function emptyDashboard(error?: string): DashboardPayload {
     compare: [],
   };
 }
+
+export const SESSION_EXPIRED_MSG = "Your session expired. Please sign in again.";

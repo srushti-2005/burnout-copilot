@@ -1,14 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Calendar, Heart, Moon, RefreshCw, Shield, Sparkles } from "lucide-react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { callApi, getDashboard, refreshUserToken } from "@/lib/dashboard.functions";
 import { disconnectAgent, agentStatus, connectAgent, connectAgentViaDeepLink } from "@/lib/agent";
 import { toast } from "sonner";
-import { emptyDashboard } from "@/lib/dashboard.fallback";
-import type { TwinPayload } from "@/lib/dashboard.types";
+import {SESSION_EXPIRED_MSG, emptyDashboard } from "@/lib/dashboard.fallback";
+import type {DashboardPayload, TwinPayload } from "@/lib/dashboard.types";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RiskGauge } from "@/components/dashboard/RiskGauge";
@@ -76,33 +76,40 @@ function Dashboard() {
   const callApiFn = useServerFn(callApi);
   const refreshTokenFn = useServerFn(refreshUserToken);
 
-  const silentRefreshToken = useCallback(async (): Promise<string | null> => {
+  const [uid, setUid] = useState<string | null>(null);
+  const tokenRef = useRef<string | null>(null);
+  const lastGood = useRef<DashboardPayload | null>(null);
+  const refreshInFlight = useRef<Promise<string | null> | null>(null);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+
+  const silentRefreshToken = useCallback((): Promise<string | null> => {
+  if (refreshInFlight.current) return refreshInFlight.current;
+  const run = (async (): Promise<string | null> => {
     const rf = localStorage.getItem("bc_refresh_token");
     if (!rf) return null;
     try {
       const res = await refreshTokenFn({ data: { refreshToken: rf } });
       if (res?.success && res.access_token) {
         localStorage.setItem("bc_token", res.access_token);
-        if (res.refresh_token) {
-          localStorage.setItem("bc_refresh_token", res.refresh_token);
-        }
+        if (res.refresh_token) localStorage.setItem("bc_refresh_token", res.refresh_token);
+        tokenRef.current = res.access_token;
         setToken(res.access_token);
         return res.access_token;
       }
-    } catch {
-      // Proactive background refresh failed; keep existing screen state and never auto-logout
-    }
+    } catch { /* keep current screen state, never auto-logout */ }
     return null;
-  }, [refreshTokenFn]);
+  })().finally(() => { refreshInFlight.current = null; });
+  refreshInFlight.current = run;
+  return run;
+}, [refreshTokenFn]);
 
-  // Proactively refresh the access token every 15 minutes so sessions stay permanently alive
-  useEffect(() => {
-    if (!token) return;
-    const interval = setInterval(() => {
-      void silentRefreshToken();
-    }, 15 * 60_000);
-    return () => clearInterval(interval);
-  }, [token, silentRefreshToken]);
+useEffect(() => {
+  if (!ready) return;
+  void silentRefreshToken();
+  const onVisible = () => { if (document.visibilityState === "visible") void silentRefreshToken(); };
+  document.addEventListener("visibilitychange", onVisible);
+  return () => document.removeEventListener("visibilitychange", onVisible);
+}, [ready, silentRefreshToken]);
 
   // ── Buzzer: Web Audio API, no external sound file. Browsers block audio
   // until the page has received at least one real user interaction (a
@@ -169,6 +176,7 @@ function Dashboard() {
       return;
     }
     setToken(storedToken);
+    setUid(storedUid);
     setReady(true);
   }, [navigate]);
 
@@ -212,16 +220,27 @@ function Dashboard() {
     };
   }, [agentStatusInfo.tracking, token]);
 
-  const { data, refetch, isFetching } = useQuery({
-    queryKey: ["dashboard", token],
-    queryFn: () => fetchDashboard({ data: { token: token! } }),
-    enabled: Boolean(token),
+  const { data, refetch, isFetching, error: queryError } = useQuery({
+  queryKey: ["dashboard", uid],            // token removed from the key
+  queryFn: async (): Promise<DashboardPayload> => {
+    let res = await fetchDashboard({ data: { token: tokenRef.current! } });
+    if (!res.ok && res.error === SESSION_EXPIRED_MSG) {
+      const next = await silentRefreshToken();
+      if (next) res = await fetchDashboard({ data: { token: next } });
+    }
+    if (!res.ok) throw new Error(res.error || "Dashboard unavailable"); // keeps last good data
+    return res;
+  },
+    enabled: Boolean(uid && token),
+    retry: 2,
+    retryDelay: (n) => Math.min(2000 * 2 ** n, 15000),
+    placeholderData: keepPreviousData,
   });
 
   const { data: twinData, isLoading: twinLoading } = useQuery({
-    queryKey: ["twin", token],
+    queryKey: ["twin", uid],
     queryFn: async (): Promise<TwinPayload | null> => {
-      let activeTok = token!;
+      let activeTok = tokenRef.current!;
       let res = await callApiFn({ data: { token: activeTok, method: "GET", path: "/twin" } });
       if (res.status === 401) {
         // Attempt silent refresh instead of kicking the user out
@@ -238,11 +257,21 @@ function Dashboard() {
         return null;
       }
     },
-    enabled: Boolean(token),
+    enabled: Boolean(uid && token),
     refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
   });
 
-  const d = data ?? emptyDashboard();
+  
+  if (data?.ok) lastGood.current = data;
+
+  const d = data?.ok
+    ? data
+    : lastGood.current ??
+      emptyDashboard(
+        queryError ? "Can't reach the server, retrying…" : undefined
+      );
+
   const name = d.user.display_name || (d.user.email ? d.user.email.split("@")[0]! : "");
   const trendSpark = d.trend.slice(-8).map((t) => t.CLI);
 
@@ -259,10 +288,15 @@ function Dashboard() {
     setCurrentView(id);
   };
 
+  
   const refreshDashboard = async () => {
-    await Promise.all([refetch(), queryClient.invalidateQueries({ queryKey: ["twin", token] })]);
+    await Promise.all([
+      refetch(),
+      queryClient.invalidateQueries({ queryKey: ["twin", uid] }),
+    ]);
     setInterventionsReloadKey((k) => k + 1);
   };
+
 
   const openFocusPanel = (minutes = 20) => {
     setFocusInitialMinutes(minutes);

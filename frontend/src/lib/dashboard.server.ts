@@ -1,5 +1,6 @@
 import type { ApiCallResult, AuthResult, DashboardPayload } from "./dashboard.types";
-import { emptyDashboard } from "./dashboard.fallback";
+import { emptyDashboard, SESSION_EXPIRED_MSG } from "./dashboard.fallback";
+
 
 function base(): string {
   const url = process.env["PYTHON_API_URL"];
@@ -78,7 +79,7 @@ export async function apiDashboard(token: string): Promise<DashboardPayload> {
       headers: headers({ Authorization: `Bearer ${token}` }),
     });
     if (res.status === 401) {
-      return emptyDashboard("Your session expired. Please sign in again.");
+      return emptyDashboard(SESSION_EXPIRED_MSG);
     }
     if (!res.ok) return emptyDashboard(`Service returned ${res.status}`);
     const data = (await res.json()) as DashboardPayload;
