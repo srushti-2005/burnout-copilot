@@ -15,6 +15,12 @@ from pathlib import Path
 from datetime import datetime, timezone
 import pandas as pd
 
+from dateutil import parser as _dtparser  # installed with pandas
+
+def parse_ts(ts) -> datetime:
+    dt = ts if isinstance(ts, datetime) else _dtparser.isoparse(str(ts))
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
 # Ensure backend root is on sys.path for IDEs and standalone executions
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 if str(_BACKEND_DIR) not in sys.path:
@@ -176,7 +182,7 @@ def _compute_cli_for_row(
         prev_ts_str = prev_session.get("created_at")
         if prev_ts_str:
             try:
-                prev_dt = datetime.fromisoformat(prev_ts_str.replace("Z", "+00:00"))
+                prev_dt = parse_ts(prev_ts_str)
                 delta_hours = max(0.0, (now - prev_dt).total_seconds() / 3600.0)
                 is_earlier_day = (prev_dt.date() < now.date())
 
@@ -194,6 +200,7 @@ def _compute_cli_for_row(
                     base_raw = max(0.08 if has_activity else 0.0, prev_raw * decay)
                     base_adjusted = max(0.08 if has_activity else 0.0, prev_cli * decay)
             except Exception:
+                log.exception("[supabase_manager] prev-session decay failed, resetting baseline")
                 base_raw = 0.08 if has_activity else 0.0
                 base_adjusted = 0.08 if has_activity else 0.0
 

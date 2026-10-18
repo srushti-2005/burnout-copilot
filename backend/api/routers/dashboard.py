@@ -5,6 +5,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
+import math
+from src.data.supabase_manager import get_or_create_baseline, parse_ts
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -24,6 +26,24 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 RAW_COLS = ["typing_mean", "typing_variance", "task_switching", "work_duration", "late_night"]
 
+def _num(v, default=0.0) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return default if (math.isnan(f) or math.isinf(f)) else f
+
+
+def _clean_row(r: dict) -> dict:
+    r = dict(r)
+    for k in ("typing_mean", "typing_variance", "task_switching", "work_duration", "cli_score"):
+        r[k] = _num(r.get(k))
+    r["late_night"] = 1 if r.get("late_night") else 0
+    r["risk_level"] = r.get("risk_level") or "Low"
+    return r
+
+# in _fetch_sessions, last line:
+    return [_clean_row(r) for r in (result.data or [])]
 
 def _fetch_sessions(user_id: str, limit: int = 100) -> list[dict]:
     client = get_service_client()
@@ -56,7 +76,7 @@ def _user_profile(uid: str) -> dict:
 def _to_session_row(row: dict) -> dict:
     ts = row["created_at"]
     if isinstance(ts, str):
-        ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        ts_dt = parse_ts(row["created_at"])
     else:
         ts_dt = ts
     return {
@@ -72,8 +92,7 @@ def _to_session_row(row: dict) -> dict:
 
 
 def _build_trend(rows: list[dict]) -> list[dict]:
-    # rows are newest-first from the query; trend should read oldest -> newest
-    ordered = list(reversed(rows))
+    ordered = [r for r in reversed(rows) if r["cli_score"] > 0]
     return [
         {
             "session_index": i,
@@ -158,16 +177,10 @@ def _pct_metrics(latest_norm: dict) -> dict:
 
 @router.get("")
 def get_dashboard(user_id: str = Depends(get_current_user_id)):
-    """
-    Identity comes ONLY from the verified Supabase token, the same way
-    /twin and /focus/* already work. There is no uid query param, so a
-    caller can never read someone else's dashboard by guessing an id.
-    """
     rows = _fetch_sessions(user_id)
     if not rows:
         return {
-            "ok": True,
-            "user": _user_profile(user_id),
+            "ok": True, "user": _user_profile(user_id),
             "cli": 0.08, "cli_category": "Low", "rest_pct": 85, "focus_pct": 80, "balance_pct": 85,
             "stress_level": "Low", "energy_level": "82%",
             "late_night_count": 0, "session_count": 0, "avg_duration": 0,
@@ -176,97 +189,75 @@ def get_dashboard(user_id: str = Depends(get_current_user_id)):
         }
 
     latest = rows[0]
-    weights = get_training_weights()
-    bounds = get_training_bounds()
-
-    # Calculate live time-decayed CLI for the user's current moment
-    import math
-    ts = latest["created_at"]
-    if isinstance(ts, str):
-        latest_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    else:
-        latest_dt = ts
     now = datetime.now(timezone.utc)
+    latest_dt = parse_ts(latest["created_at"])
     delta_hours = max(0.0, (now - latest_dt).total_seconds() / 3600.0)
-    is_earlier_day = (latest_dt.date() < now.date())
+    is_earlier_day = latest_dt.date() < now.date()
+    stored_cli = max(0.08, latest["cli_score"])
 
-    stored_cli = max(0.08, float(latest.get("cli_score") or 0.08))
-
-    # Morning reset: only after overnight sleep (>= 6 hours gap on an earlier calendar day)
     if is_earlier_day and delta_hours >= 6.0:
-        current_cli = 0.08
-        current_category = "Low"
+        current_cli, current_category = 0.08, "Low"
     else:
-        # Same day: slow, continuous, realistic rest decay (e^(-0.04 * delta_hours))
-        # Rate-limited so live refreshing decays smoothly by at most 1-2%
         decay = math.exp(-0.04 * delta_hours)
         decayed = max(0.08, stored_cli * decay)
         max_drop = min(0.020, 0.015 * min(1.5, max(1.0, delta_hours * 6.0)))
         current_cli = round(max(0.08, max(stored_cli - max_drop, decayed)), 3)
         current_category = categorize_cli(current_cli)
 
-    # Realistic circadian Energy and Mental Load calculation
-    # Energy is not a naive (100 - CLI); a conscious human being reading or working is never at 100%.
-    # Factored with circadian hour of day, cumulative work duration, and cognitive load.
-    total_work_hours = sum(float(r.get("work_duration") or 0.0) for r in rows[:8])
+    total_work_hours = sum(r["work_duration"] for r in rows[:8])
     hour = now.hour
     circadian_base = 84.0 - max(0.0, (hour - 8) * 1.2) if 8 <= hour <= 23 else 70.0
-    energy_val = round(max(25.0, min(85.0, circadian_base - (total_work_hours * 2.5) - (current_cli * 25.0))))
-    energy_str = f"{energy_val}%"
+    energy_val = round(max(25.0, min(85.0, circadian_base - total_work_hours * 2.5 - current_cli * 25.0)))
 
-    if current_cli <= 0.25:
-        stress_str = "Low"
-    elif current_cli <= 0.60:
-        stress_str = "Moderate"
-    else:
-        stress_str = "Elevated"
+    stress_str = "Low" if current_cli <= 0.25 else "Moderate" if current_cli <= 0.60 else "Elevated"
 
-    latest_df = pd.DataFrame([{k: latest[k] for k in RAW_COLS}])
-    latest_df_norm = normalize_with_fixed_bounds(latest_df, bounds).iloc[0]
-    latest_norm = latest_df_norm.to_dict()
+    try:
+        weights = get_training_weights()
+        bounds = get_training_bounds()
+        latest_df = pd.DataFrame([{k: latest[k] for k in RAW_COLS}])
+        latest_norm = normalize_with_fixed_bounds(latest_df, bounds).iloc[0].fillna(0.0).to_dict()
+        pct = _pct_metrics(latest_norm)
+        drivers = _build_drivers(latest_norm, weights)
+    except Exception:
+        logger.exception("Scoring breakdown failed for %s", user_id)
+        pct = {"rest_pct": 0, "focus_pct": 0, "balance_pct": 0}
+        drivers = []
 
     try:
         baseline = get_or_create_baseline(user_id) or {}
     except Exception:
-        logger.exception("Baseline fetch failed for %s, continuing without it", user_id)
+        logger.exception("Baseline fetch failed for %s", user_id)
         baseline = {}
 
     try:
         forecast_df = get_7_day_forecast(current_cli)
-        forecast = [
-            {"date": d.strftime("%Y-%m-%d"), "CLI": round(float(c), 3)}
-            for d, c in zip(forecast_df["Date"], forecast_df["CLI"])
-        ]
+        forecast = [{"date": d.strftime("%Y-%m-%d"), "CLI": round(float(c), 3)}
+                    for d, c in zip(forecast_df["Date"], forecast_df["CLI"])]
     except Exception:
         logger.exception("Forecast failed for %s", user_id)
         forecast = []
 
     try:
         signals = {k: latest[k] for k in RAW_COLS}
-        suggestion_texts = get_suggestions_for_session(cli=current_cli, **signals)
-        suggestions = [{"title": s, "body": ""} for s in suggestion_texts]
+        suggestions = [{"title": s, "body": ""}
+                       for s in get_suggestions_for_session(cli=current_cli, **signals)]
     except Exception:
         logger.exception("Suggestions failed for %s", user_id)
         suggestions = []
 
-    late_night_count = sum(1 for r in rows if int(r["late_night"]) == 1)
-    avg_duration = round(sum(r["work_duration"] for r in rows) / len(rows), 1)
-
     return {
         "ok": True,
         "user": _user_profile(user_id),
-        "cli": current_cli,
-        "cli_category": current_category,
-        "stress_level": stress_str,
-        "energy_level": energy_str,
-        **_pct_metrics(latest_norm),
-        "late_night_count": late_night_count,
+        "cli": current_cli, "cli_category": current_category,
+        "stress_level": stress_str, "energy_level": f"{energy_val}%",
+        **pct,
+        "late_night_count": sum(r["late_night"] for r in rows),
         "session_count": len(rows),
-        "avg_duration": avg_duration,
+        "avg_duration": round(sum(r["work_duration"] for r in rows) / len(rows), 1),
         "latest": _to_session_row(latest),
         "trend": _build_trend(rows),
         "forecast": forecast,
         "suggestions": suggestions,
-        "drivers": _build_drivers(latest_norm, weights),
+        "drivers": drivers,
         "compare": _build_compare(latest, baseline) if baseline else [],
     }
