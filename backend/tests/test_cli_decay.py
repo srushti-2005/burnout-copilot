@@ -15,8 +15,9 @@ from src.data.supabase_manager import _compute_cli_for_row
 from api.routers import dashboard
 
 
-def test_cli_reading_inactivity_floor():
-    """Verify that CLI maintains a realistic floor during reading."""
+
+def test_cli_zero_when_all_activity_signals_are_zero():
+    """CLI should be zero when all activity signals are zero."""
     row = {
         "typing_mean": 0,
         "typing_variance": 0,
@@ -27,14 +28,12 @@ def test_cli_reading_inactivity_floor():
 
     cli_raw, cli_adj, risk = _compute_cli_for_row(row)
 
-    assert cli_adj >= 0.08, (
-        f"Expected CLI >= 0.08 during reading, got {cli_adj}"
-    )
-    assert risk == "Low"
+    assert cli_raw == 0.0, f"Expected raw CLI 0, got {cli_raw}"
+    assert cli_adj == 0.0, f"Expected adjusted CLI 0, got {cli_adj}"
 
 
-def test_cli_no_sudden_drops():
-    """Verify that CLI does not suddenly drop from 0.29 to zero."""
+def test_cli_decays_when_activity_stops():
+    """CLI should decay when the user stops showing activity signals."""
     now = datetime.now(timezone.utc)
 
     prev = {
@@ -55,11 +54,12 @@ def test_cli_no_sudden_drops():
         reading_row,
         prev_session=prev,
     )
-
-    assert cli_adj >= 0.25, (
-        f"Expected gradual decrease from 0.29, but got {cli_adj}"
+    assert 0.0 <= cli_raw < 0.29, (
+    f"Expected raw CLI to decay below 0.29, got {cli_raw}"
     )
-    assert cli_adj <= 0.29, f"Expected decrease, got {cli_adj}"
+    assert 0.0 <= cli_adj < 0.29, (
+    f"Expected adjusted CLI to decay below 0.29, got {cli_adj}"
+    )
 
 
 def test_energy_never_100_percent(monkeypatch):

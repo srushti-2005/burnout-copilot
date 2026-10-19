@@ -13,13 +13,9 @@ import socket
 import time
 from pathlib import Path
 from datetime import datetime, timezone
-import pandas as pd
+from types import SimpleNamespace
 
 from dateutil import parser as _dtparser  # installed with pandas
-
-def parse_ts(ts) -> datetime:
-    dt = ts if isinstance(ts, datetime) else _dtparser.isoparse(str(ts))
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 # Ensure backend root is on sys.path for IDEs and standalone executions
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -31,6 +27,7 @@ try:
     from src.cli_logic import (
         get_training_weights, get_training_bounds,
         normalize_with_fixed_bounds, calculate_cli, categorize_cli,
+        compute_session_cli, is_idle,
     )
     from src.features.activity_context import compute_context_multiplier
     from src.config.config import MIN_BASELINE_SESSIONS
@@ -39,6 +36,7 @@ except ImportError:
     from backend.src.cli_logic import (  # type: ignore
         get_training_weights, get_training_bounds,
         normalize_with_fixed_bounds, calculate_cli, categorize_cli,
+        compute_session_cli, is_idle,
     )
     from backend.src.features.activity_context import compute_context_multiplier  # type: ignore
     from backend.src.config.config import MIN_BASELINE_SESSIONS  # type: ignore
@@ -49,6 +47,64 @@ MIN_SESSIONS_FOR_BASELINE = MIN_BASELINE_SESSIONS  # single source of truth: con
 
 # How recent a check-in has to be to count as active context for a session.
 ACTIVITY_CONTEXT_WINDOW_MINUTES = 240
+
+
+# Two uploads with identical raw features this close together are the same
+# window sent twice (client retry after a slow Render cold start, double
+# connect, ...). The second one is not stored.
+DUPLICATE_WINDOW_SECONDS = 90
+MAX_BACKFILL_HOURS = 48
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def parse_ts(ts) -> datetime:
+    """Timezone-aware datetime from a Supabase timestamp string or datetime.
+    Handles 5-digit fractional seconds that datetime.fromisoformat rejects
+    on Python < 3.11."""
+    dt = ts if isinstance(ts, datetime) else _dtparser.isoparse(str(ts))
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _event_time(ts, now: datetime) -> tuple[datetime, bool]:
+    """When the window really happened. Only a timezone-aware client
+    timestamp that is 2 min .. 48 h old is trusted (offline mobile sync);
+    anything else (naive, future, ancient, or ~now) is treated as 'now'.
+    Returns (time, overridden)."""
+    try:
+        if ts is None:
+            return now, False
+        dt = ts if isinstance(ts, datetime) else _dtparser.isoparse(str(ts))
+        if dt.tzinfo is None:
+            return now, False
+        dt = dt.astimezone(timezone.utc)
+        age = (now - dt).total_seconds()
+        if age < 120 or age > MAX_BACKFILL_HOURS * 3600:
+            return now, False
+        return dt, True
+    except Exception:
+        return now, False
+
+
+def _is_duplicate(prev: dict | None, row: dict, event_time: datetime) -> bool:
+    if not prev:
+        return False
+    try:
+        if abs((event_time - parse_ts(prev["created_at"])).total_seconds()) > DUPLICATE_WINDOW_SECONDS:
+            return False
+        same = all(
+            abs(float(prev.get(k) or 0) - float(row.get(k) or 0)) < 1e-6
+            for k in ("typing_mean", "typing_variance", "task_switching", "work_duration")
+        )
+        return (
+            same
+            and bool(prev.get("late_night")) == bool(row.get("late_night"))
+            and str(prev.get("device_source") or "web") == str(row.get("device_source") or "web")
+        )
+    except Exception:
+        return False
 
 
 def _get_recent_activity_context(uid: str, window_minutes: int = ACTIVITY_CONTEXT_WINDOW_MINUTES) -> dict | None:
@@ -67,8 +123,8 @@ def _get_recent_activity_context(uid: str, window_minutes: int = ACTIVITY_CONTEX
         row = res.data[0]
         ts = row.get("segment_end_utc") or row.get("created_at")
         if ts:
-            ended = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            age_minutes = (datetime.now(timezone.utc) - ended).total_seconds() / 60
+            ended = parse_ts(ts)
+            age_minutes = (_utcnow() - ended).total_seconds() / 60
             if age_minutes <= window_minutes:
                 return row
         return None
@@ -98,8 +154,8 @@ def _get_active_or_recent_focus_session(uid: str) -> dict | None:
         if recent_res.data:
             end_str = recent_res.data[0].get("end_time") or recent_res.data[0].get("created_at")
             if end_str:
-                ended = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-                if (datetime.now(timezone.utc) - ended).total_seconds() <= 1800:
+                ended = parse_ts(end_str)
+                if (_utcnow() - ended).total_seconds() <= 1800:
                     return recent_res.data[0]
         return None
     except Exception as e:
@@ -107,15 +163,15 @@ def _get_active_or_recent_focus_session(uid: str) -> dict | None:
         return None
 
 
-def _get_latest_user_session(uid: str) -> dict | None:
-    """Query the most recent previous session for this user."""
+def _get_latest_user_session(uid: str, before: datetime | None = None) -> dict | None:
+    """Most recent previous session for this user (strictly before `before`
+    when given, for back-dated mobile uploads)."""
     try:
         sb = get_service_client()
-        res = (
-            sb.table("sessions").select("*")
-            .eq("user_id", uid).order("created_at", desc=True)
-            .limit(1).execute()
-        )
+        q = sb.table("sessions").select("*").eq("user_id", uid)
+        if before is not None:
+            q = q.lt("created_at", before.isoformat())
+        res = q.order("created_at", desc=True).limit(1).execute()
         return res.data[0] if res.data else None
     except Exception as e:
         log.error(f"[supabase_manager] previous session query failed (non-fatal): {e}")
@@ -129,139 +185,61 @@ def _compute_cli_for_row(
     prev_session: dict | None = None,
     activity_type: str | None = None,
     is_focus_active: bool = False,
+    now: datetime | None = None,
 ) -> tuple:
+    """CLI for one new session. Returns (cli_raw, cli_adjusted, risk_level).
+
+    The score formula is the original CRITIC formula (cli_logic.calculate_cli).
+    What this adds is how the score MOVES between sessions:
+      * no typing, no variance, no window switches -> instantaneous load is
+        exactly 0 (work_duration alone is elapsed time, not load);
+      * rises and falls gradually, with NO artificial floor, so an idle user
+        reaches 0 after a realistic rest period;
+      * time without data rests the old value toward 0 first, so overnight
+        gaps reset naturally (no calendar-day / timezone logic).
+    `age`, `activity_type` and `is_focus_active` are kept for caller
+    compatibility; age never influences the score.
     """
-    Computes CLI with cumulative fatigue-recovery dynamics:
-    1. Instantaneous Load (L_raw): CRITIC-weighted five-indicator cognitive strain.
-    2. Context-Adjusted Load (L_adjusted): L_raw * context_multiplier.
-    3. Baseline / Previous Session State:
-       - Morning / Overnight reset: If previous session was on an earlier day
-         and >= 5 hours overnight gap (or >= 6 hours break), start fresh in the morning at 0.0.
-       - Intra-day Break / Logout: CLI decays smoothly with rest time (e.g. e^(-0.35 * delta_hours)),
-         so logging out never wipes fatigue to zero.
-    4. Asymmetric Dynamics:
-       - Increase is gradual (alpha_up = 0.35)
-       - Decrease is slower than increase (alpha_down = 0.12, or 0.22 if activity is 'break').
-         Prevents sudden drops from e.g. 25% to 1% after heavy sessions.
-
-    Returns (cli_raw, cli_adjusted, risk_level).
-    """
-    single = pd.DataFrame([{
-        "typing_mean":     row["typing_mean"],
-        "typing_variance": row["typing_variance"],
-        "task_switching":  row["task_switching"],
-        "work_duration":   row["work_duration"],
-        "late_night":      int(bool(row["late_night"])),
-    }])
-    norm = normalize_with_fixed_bounds(single, get_training_bounds())
-    instant_raw = calculate_cli(norm.iloc[0], get_training_weights())
-
-    # 1. Passive reading / study floor:
-    # A user working at their device maintains a realistic baseline load (~0.08 - 0.12)
-    # even with low keystrokes or app switches. Any real activity adds directly to this baseline.
-    has_activity = (
-        float(row.get("work_duration", 0) or 0) > 0 or
-        float(row.get("typing_mean", 0) or 0) > 0 or
-        float(row.get("task_switching", 0) or 0) > 0 or
-        bool(row.get("late_night", 0))
-    )
-    if has_activity and instant_raw < 0.08:
-        instant_raw = round(0.08 + instant_raw, 4)
-    elif has_activity:
-        instant_raw = max(0.08, instant_raw)
-
-    instant_adjusted = round(min(1.0, max(0.08 if has_activity else 0.0, instant_raw * context_multiplier)), 4)
-
-    # Determine previous fatigue baseline
-    now = datetime.now(timezone.utc)
-    base_raw = 0.08 if has_activity else 0.0
-    base_adjusted = 0.08 if has_activity else 0.0
-    delta_hours = 0.0
-
-    if prev_session:
-        prev_ts_str = prev_session.get("created_at")
-        if prev_ts_str:
-            try:
-                prev_dt = parse_ts(prev_ts_str)
-                delta_hours = max(0.0, (now - prev_dt).total_seconds() / 3600.0)
-                is_earlier_day = (prev_dt.date() < now.date())
-
-                # Morning reset: only after overnight sleep (>= 6 hours gap on an earlier calendar day)
-                if is_earlier_day and delta_hours >= 6.0:
-                    base_raw = 0.08 if has_activity else 0.0
-                    base_adjusted = 0.08 if has_activity else 0.0
-                else:
-                    # Intra-day continuity: gentle, realistic exponential rest decay for break time
-                    # e^(-0.04 * delta_hours). Over 10-15 minutes of rest, retains ~99% of fatigue.
-                    # Never collapses below 0.08 while user is active on the same day.
-                    decay = math.exp(-0.04 * delta_hours)
-                    prev_cli = float(prev_session.get("cli_score") or (0.08 if has_activity else 0.0))
-                    prev_raw = float(prev_session.get("cli_score_raw") or prev_cli)
-                    base_raw = max(0.08 if has_activity else 0.0, prev_raw * decay)
-                    base_adjusted = max(0.08 if has_activity else 0.0, prev_cli * decay)
-            except Exception:
-                log.exception("[supabase_manager] prev-session decay failed, resetting baseline")
-                base_raw = 0.08 if has_activity else 0.0
-                base_adjusted = 0.08 if has_activity else 0.0
-
-    # 2. Asymmetric Fatigue/Recovery Update with Strict Gradual Step Limiting:
-    # Requirement: The score should increase or decrease gradually (by 1% to 2% at a time),
-    # never experiencing steep, sudden drops (like going from 29 straight to 0).
-    if prev_session and base_adjusted > 0.0:
-        # Scale maximum allowed drop/gain gently (1.0% to 1.5% maximum change per step)
-        max_decrease = min(0.020, max(0.010, 0.015 * min(1.5, max(1.0, delta_hours * 6.0))))
-        max_increase = min(0.030, max(0.015, 0.020 * min(1.5, max(1.0, delta_hours * 6.0))))
-
-        is_break = (activity_type or "").lower() == "break"
-        alpha_down = 0.10 if is_break else 0.05
-        alpha_up = 0.20
-
-        if instant_adjusted >= base_adjusted:
-            target_adj = base_adjusted + alpha_up * (instant_adjusted - base_adjusted)
-        else:
-            target_adj = base_adjusted - alpha_down * (base_adjusted - instant_adjusted)
-
-        if instant_raw >= base_raw:
-            target_raw = base_raw + alpha_up * (instant_raw - base_raw)
-        else:
-            target_raw = base_raw - alpha_down * (base_raw - instant_raw)
-
-        # Enforce gradual step limit (1-2% at a time)
-        cli_adjusted = max(base_adjusted - max_decrease, min(base_adjusted + max_increase, target_adj))
-        cli_raw = max(base_raw - max_decrease, min(base_raw + max_increase, target_raw))
+    now = now or _utcnow()
+    gap_min = None
+    if prev_session and prev_session.get("created_at"):
+        try:
+            gap_min = max(0.0, (now - parse_ts(prev_session["created_at"])).total_seconds() / 60.0)
+        except Exception:
+            log.exception("[supabase_manager] could not parse previous session time; treating as first session")
+            prev_session = None
     else:
-        # Cold start (first session of day)
-        cli_adjusted = max(0.08, instant_adjusted) if has_activity else max(0.0, instant_adjusted)
-        cli_raw = max(0.08, instant_raw) if has_activity else max(0.0, instant_raw)
-
-    cli_adjusted = round(min(1.0, max(0.08 if has_activity else 0.0, cli_adjusted)), 3)
-    cli_raw = round(min(1.0, max(0.08 if has_activity else 0.0, cli_raw)), 3)
-
-    risk = categorize_cli(cli_adjusted, age=age)
-    return cli_raw, cli_adjusted, risk
+        prev_session = None
+    return compute_session_cli(
+        row, prev_session, gap_min, context_multiplier,
+        weights=get_training_weights(), bounds=get_training_bounds(),
+    )
 
 
 def save_session(uid: str, data: dict):
-    has_activity = (
-        float(data.get("work_duration", 0) or 0) > 0 or
-        float(data.get("typing_mean", 0) or 0) > 0 or
-        float(data.get("task_switching", 0) or 0) > 0 or
-        bool(data.get("late_night", 0))
-    )
-    initial_cli = 0.08 if has_activity else 0.0
+    now = _utcnow()
+    event_time, overridden = _event_time(data.get("timestamp_utc"), now)
     row = {
         "user_id":            uid,
-        "typing_mean":        float(data.get("typing_mean", 0)),
-        "typing_variance":    float(data.get("typing_variance", 0)),
-        "task_switching":     int(data.get("task_switching", 0)),
-        "work_duration":      float(data.get("work_duration", 0)),
+        "typing_mean":        float(data.get("typing_mean") or 0),
+        "typing_variance":    float(data.get("typing_variance") or 0),
+        "task_switching":     int(data.get("task_switching") or 0),
+        "work_duration":      float(data.get("work_duration") or 0),
         "late_night":         bool(data.get("late_night", 0)),
-        "cli_score":          initial_cli,
-        "cli_score_raw":      initial_cli,
+        "cli_score":          0.0,
+        "cli_score_raw":      0.0,
         "context_multiplier": 1.0,
         "risk_level":         "Low",
         "device_source":      str(data.get("device_source") or "web"),
     }
+    if overridden:
+        row["created_at"] = event_time.isoformat()
+
+    # Previous session (for the CLI chain) -- also used to drop duplicates.
+    prev_session = _get_latest_user_session(uid, before=event_time if overridden else None)
+    if _is_duplicate(prev_session, row, event_time):
+        log.info(f"[supabase_manager] duplicate upload ignored for user {uid} (id={prev_session.get('id')})")
+        return SimpleNamespace(data=[prev_session])
 
     try:
         profile = get_profile(uid)
@@ -295,9 +273,6 @@ def save_session(uid: str, data: dict):
     # Combined context multiplier
     multiplier = round(min(1.10, max(0.05, activity_mult * focus_mult)), 3)
 
-    # 3. Previous Session (for cumulative fatigue / decay)
-    prev_session = _get_latest_user_session(uid)
-
     try:
         cli_raw, cli_adjusted, risk = _compute_cli_for_row(
             row,
@@ -306,13 +281,14 @@ def save_session(uid: str, data: dict):
             prev_session=prev_session,
             activity_type=activity_type,
             is_focus_active=is_focus_active,
+            now=event_time,
         )
         row["cli_score"]          = cli_adjusted
         row["cli_score_raw"]      = cli_raw
         row["context_multiplier"] = multiplier
         row["risk_level"]         = risk
-    except Exception as e:
-        log.error(f"[supabase_manager] CLI computation failed at write time (non-fatal): {e}")
+    except Exception:
+        log.exception("[supabase_manager] CLI computation failed at write time (non-fatal)")
 
     last_error = None
     for attempt in range(1, 5):
@@ -336,7 +312,7 @@ def save_session(uid: str, data: dict):
             except Exception:
                 pass
 
-            if has_activity:
+            if not is_idle(row):  # idle windows must not drag the personal baseline toward 0
                 _update_baseline_after_session(sb, uid, row)
             _auto_resolve_interventions(sb, uid, row)
             return result
@@ -383,7 +359,7 @@ def get_user_sessions(uid: str, limit: int = 200) -> list[dict]:
     for r in rows:
         created = r.get("created_at")
         if created:
-            ts_utc = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            ts_utc = parse_ts(created)
             ts = ts_utc.astimezone()
         else:
             ts = datetime.now().astimezone()
