@@ -59,6 +59,44 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
+const DASH_CACHE_KEY = "bc_dash_cache_v1";
+
+function readCachedDashboard(uid: string | null): DashboardPayload | undefined {
+  if (!uid) return undefined;
+  try {
+    const raw = localStorage.getItem(`${DASH_CACHE_KEY}:${uid}`);
+    if (!raw) return undefined;
+    const p = JSON.parse(raw) as DashboardPayload;
+    return p?.ok ? p : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function tokenExpiresWithin(token: string | null, seconds: number): boolean {
+  if (!token) return true;
+  try {
+    const part = token.split(".")[1];
+    if (!part) return true;
+    const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.exp !== "number" || payload.exp * 1000 - Date.now() < seconds * 1000;
+  } catch {
+    return true;
+  }
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="flex min-h-screen items-center justify-center p-6" role="status" aria-live="polite">
+      <div className="clay-card flex flex-col items-center gap-4 p-10">
+        <div className="size-12 animate-spin rounded-full border-4 border-muted border-t-clay-purple" />
+        <p className="text-sm font-semibold text-muted-foreground">Loading your dashboard…</p>
+        <p className="text-xs text-muted-foreground">The first load can take a few seconds while the server wakes up.</p>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -104,9 +142,13 @@ function Dashboard() {
 }, [refreshTokenFn]);
 
 useEffect(() => {
+  const loadingFirst = Boolean(token) && !data && isPending;
   if (!ready) return;
-  void silentRefreshToken();
-  const onVisible = () => { if (document.visibilityState === "visible") void silentRefreshToken(); };
+  const maybeRefresh = () => {
+    if (tokenExpiresWithin(localStorage.getItem("bc_token"), 300)) void silentRefreshToken();
+  };
+  maybeRefresh();
+  const onVisible = () => { if (document.visibilityState === "visible") maybeRefresh(); };
   document.addEventListener("visibilitychange", onVisible);
   return () => document.removeEventListener("visibilitychange", onVisible);
 }, [ready, silentRefreshToken]);
@@ -162,6 +204,8 @@ useEffect(() => {
     localStorage.removeItem("bc_uid");
     localStorage.removeItem("bc_token");
     localStorage.removeItem("bc_refresh_token");
+    const u = localStorage.getItem("bc_uid");
+    if (u) localStorage.removeItem(`${DASH_CACHE_KEY}:${u}`);
     void navigate({ to: "/login" });
   }, [navigate]);
 
@@ -220,22 +264,31 @@ useEffect(() => {
     };
   }, [agentStatusInfo.tracking, token]);
 
-  const { data, refetch, isFetching, error: queryError } = useQuery({
-  queryKey: ["dashboard", uid],            // token removed from the key
-  queryFn: async (): Promise<DashboardPayload> => {
-    let res = await fetchDashboard({ data: { token: tokenRef.current! } });
-    if (!res.ok && res.error === SESSION_EXPIRED_MSG) {
-      const next = await silentRefreshToken();
-      if (next) res = await fetchDashboard({ data: { token: next } });
-    }
-    if (!res.ok) throw new Error(res.error || "Dashboard unavailable"); // keeps last good data
-    return res;
-  },
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const { data, refetch, isFetching, isPending, error: queryError } = useQuery({
+    queryKey: ["dashboard", uid],
+    queryFn: async (): Promise<DashboardPayload> => {
+      if (tokenExpiresWithin(tokenRef.current, 60)) await silentRefreshToken();
+      let res = await fetchDashboard({ data: { token: tokenRef.current!, tz } });
+      if (!res.ok && res.error === SESSION_EXPIRED_MSG) {
+        const next = await silentRefreshToken();
+        if (next) res = await fetchDashboard({ data: { token: next, tz } });
+      }
+      if (!res.ok) throw new Error(res.error || "Dashboard unavailable");
+      return res;
+    },
     enabled: Boolean(uid && token),
+    initialData: () => readCachedDashboard(uid),   // last good copy from this browser
     retry: 2,
     retryDelay: (n) => Math.min(2000 * 2 ** n, 15000),
     placeholderData: keepPreviousData,
   });
+
+  useEffect(() => {
+  if (!uid || !data?.ok) return;
+  try { localStorage.setItem(`${DASH_CACHE_KEY}:${uid}`, JSON.stringify(data)); } catch { /* quota */ }
+  }, [uid, data]);
 
   const { data: twinData, isLoading: twinLoading } = useQuery({
     queryKey: ["twin", uid],
@@ -303,14 +356,16 @@ useEffect(() => {
     setShowFocusPanel(true);
   };
 
+  const popupShown = useRef(false);
   useEffect(() => {
-    if (!ready || !data) return;
-    if (d.cli > BREAK_POPUP_CLI_THRESHOLD) {
-      setShowBreakPopup(true);
-      playAlertBuzzer();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, data]);
+  if (!ready || !data || popupShown.current) return;
+  if (d.cli > BREAK_POPUP_CLI_THRESHOLD) {
+    popupShown.current = true;
+    setShowBreakPopup(true);
+    playAlertBuzzer();
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [ready, data]);
 
   if (!ready) return <div className="min-h-screen" />;
 

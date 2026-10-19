@@ -336,7 +336,8 @@ def save_session(uid: str, data: dict):
             except Exception:
                 pass
 
-            _update_baseline_after_session(sb, uid, row)
+            if has_activity:
+                _update_baseline_after_session(sb, uid, row)
             _auto_resolve_interventions(sb, uid, row)
             return result
         except Exception as e:

@@ -32,8 +32,13 @@ app.include_router(interventions.router)
 app.include_router(activity.router)  # NEW
 
 @app.get("/health")
-def health():
+def health(): 
     return {"status": "ok"}
 @app.get("/")
 def root():
     return {"status": "ok", "message": "Burnout Copilot API is running"}
+
+@app.on_event("startup")
+def _warm():
+    from src.cli_logic import get_training_weights, get_training_bounds
+    get_training_weights(); get_training_bounds()

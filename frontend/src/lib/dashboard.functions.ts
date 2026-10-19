@@ -2,11 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 export const getDashboard = createServerFn({ method: "GET" })
-  .inputValidator((d: unknown) => z.object({ token: z.string().min(10) }).parse(d))
+  .inputValidator((d: unknown) =>
+    z.object({ token: z.string().min(10), tz: z.string().max(64).optional() }).parse(d))
   .handler(async ({ data }) => {
     const { apiDashboard } = await import("./dashboard.server");
-    return apiDashboard(data.token);
-  });
+    return apiDashboard(data.token, data.tz);
+});
 
 export const loginUser = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>

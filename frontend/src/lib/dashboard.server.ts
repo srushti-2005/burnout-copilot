@@ -73,9 +73,10 @@ export async function apiRefreshToken(refreshToken: string): Promise<AuthResult>
  * is no uid query param, so nobody can read another user's dashboard by
  * guessing an id. Mirrors how /twin and /focus/* already work.
  */
-export async function apiDashboard(token: string): Promise<DashboardPayload> {
+export async function apiDashboard(token: string, tz?: string): Promise<DashboardPayload> {
   try {
-    const res = await fetch(`${base()}/dashboard`, {
+    const qs = tz ? `?tz=${encodeURIComponent(tz)}` : "";
+    const res = await fetch(`${base()}/dashboard${qs}`, {
       headers: headers({ Authorization: `Bearer ${token}` }),
     });
     if (res.status === 401) {
