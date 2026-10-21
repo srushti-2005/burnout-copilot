@@ -163,12 +163,18 @@ def _get_active_or_recent_focus_session(uid: str) -> dict | None:
         return None
 
 
-def _get_latest_user_session(uid: str, before: datetime | None = None) -> dict | None:
-    """Most recent previous session for this user (strictly before `before`
-    when given, for back-dated mobile uploads)."""
+def _get_latest_user_session(uid: str, before: datetime | None = None,
+                             device_source: str | None = None) -> dict | None:
+    """Most recent previous session for this user ON THE SAME DEVICE TYPE
+    (strictly before `before` when given, for back-dated mobile uploads)."""
     try:
         sb = get_service_client()
         q = sb.table("sessions").select("*").eq("user_id", uid)
+        if device_source == "web":
+            # older rows may have no device_source; they are web/desktop rows
+            q = q.or_("device_source.eq.web,device_source.is.null")
+        elif device_source:
+            q = q.eq("device_source", device_source)
         if before is not None:
             q = q.lt("created_at", before.isoformat())
         res = q.order("created_at", desc=True).limit(1).execute()
@@ -176,7 +182,6 @@ def _get_latest_user_session(uid: str, before: datetime | None = None) -> dict |
     except Exception as e:
         log.error(f"[supabase_manager] previous session query failed (non-fatal): {e}")
         return None
-
 
 def _compute_cli_for_row(
     row: dict,
@@ -236,7 +241,11 @@ def save_session(uid: str, data: dict):
         row["created_at"] = event_time.isoformat()
 
     # Previous session (for the CLI chain) -- also used to drop duplicates.
-    prev_session = _get_latest_user_session(uid, before=event_time if overridden else None)
+    prev_session = _get_latest_user_session(
+        uid,
+        before=event_time if overridden else None,
+        device_source=row["device_source"],
+    )
     if _is_duplicate(prev_session, row, event_time):
         log.info(f"[supabase_manager] duplicate upload ignored for user {uid} (id={prev_session.get('id')})")
         return SimpleNamespace(data=[prev_session])
@@ -360,9 +369,9 @@ def get_user_sessions(uid: str, limit: int = 200) -> list[dict]:
         created = r.get("created_at")
         if created:
             ts_utc = parse_ts(created)
-            ts = ts_utc.astimezone()
+            ts = ts_utc.astimezone(timezone.utc)
         else:
-            ts = datetime.now().astimezone()
+            ts = datetime.now(timezone.utc)
 
         sessions.append({
             "uid":              r.get("user_id"),
