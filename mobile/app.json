@@ -44,8 +44,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "16dc9a11-d2b5-4f61-98b7-31e9c630f910"
+        "projectId": "5fd404d1-3cc7-4766-b2cd-0139c8dd0f84"
       }
-    }
+    },
+    "owner": "burnout_copilot"
   }
 }

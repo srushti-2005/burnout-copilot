@@ -13,6 +13,7 @@ makes the logged data suspicious: dead trackers, wrong units, duplicates,
 a CLI that is not decaying, timezone slips, NULLs.
 """
 from __future__ import annotations
+from src.cli_logic import get_training_bounds, get_training_weights, instant_cli, is_idle, next_cli
 
 import argparse
 import statistics
@@ -62,15 +63,15 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("user", help="email or user UUID")
     ap.add_argument("--limit", type=int, default=40)
+    ap.add_argument("--source", default=None, help="only rows with this device_source (mobile / desktop)")
     args = ap.parse_args(argv)
 
     sb = get_service_client()
     uid = resolve_user(sb, args.user)
-    res = (
-        sb.table("sessions").select("*")
-        .eq("user_id", uid).order("created_at", desc=True)
-        .limit(args.limit).execute()
-    )
+    q = sb.table("sessions").select("*").eq("user_id", uid)
+    if args.source:
+        q = q.eq("device_source", args.source)
+    res = q.order("created_at", desc=True).limit(args.limit).execute()
     rows = list(reversed(res.data or []))
     if not rows:
         print(f"No sessions stored for {uid}. Nothing reached the sessions table.")
@@ -121,7 +122,17 @@ def main(argv=None) -> int:
               f"{float(r.get('context_multiplier') or 1):5.2f} {inst:7.3f}")
 
         if not idle and cli <= 0 and inst >= 0.02:
-            flags.append(("ERROR", f"{t.astimezone(IST):%m-%d %H:%M}: active window (instant {inst:.3f}) stored with CLI 0"))
+            if prev is None:
+                gap_prev, expected = None, next_cli(None, inst, None)
+            else:
+                gap_prev = (t - parse_ts(prev["created_at"])).total_seconds() / 60
+                expected = next_cli(float(prev.get("cli_score") or 0), inst, gap_prev)
+            when = f"{t.astimezone(IST):%m-%d %H:%M:%S}"
+            if expected >= 0.01:
+                flags.append(("ERROR", f"{when}: instant {inst:.3f} stored as CLI 0 but live rules give {expected:.3f} (gap {gap_prev} min). Old scorer or a bug"))
+            else:
+                flags.append(("INFO", f"{when}: stored 0 is EXPECTED: only {gap_prev:.2f} min after the previous row, so the allowed rise rounds to 0.000"))
+        
         if idle:
             idle_streak_start = idle_streak_start or t
             streak_min = (t - idle_streak_start).total_seconds() / 60

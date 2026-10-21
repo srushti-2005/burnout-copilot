@@ -3,10 +3,47 @@ import { API_URL } from './config';
 
 export { API_URL };
 
+// GET responses are reused for this long, so switching between pages does not
+// hit the (slow, free-tier) backend again every time.
+const TTL_MS = 30_000;
+const cache = new Map<string, { at: number; data: unknown }>();
+const inflight = new Map<string, Promise<unknown>>();
+
+export function clearApiCache() {
+  cache.clear();
+  inflight.clear();
+}
+
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = (init.method || 'GET').toUpperCase();
+  if (method !== 'GET') return request<T>(path, init);
+
+  // Keyed by token so a different user never sees someone else's cached data.
+  const token = (await getToken()) ?? '';
+  const key = `${token.slice(-24)}|${path}`;
+
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.data as T;
+
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<T>;
+
+  const p = request<T>(path, init)
+    .then((data) => {
+      cache.set(key, { at: Date.now(), data });
+      return data;
+    })
+    .finally(() => {
+      inflight.delete(key);
+    });
+  inflight.set(key, p);
+  return p;
+}
+
+async function request<T>(path: string, init: RequestInit): Promise<T> {
   let token = await getToken();
 
-  // Up to 2 attempts to gracefully handle Render spin-ups (cold starts take ~25s)
+  // Up to 2 attempts to handle Render spin-ups (cold starts take ~25s)
   let lastError: any = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const controller = new AbortController();
@@ -24,7 +61,6 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
       });
 
       if (res.status === 401) {
-        // Proactively refresh the token silently without kicking the user out
         const nextToken = await refreshToken();
         if (nextToken) {
           token = nextToken;
@@ -47,8 +83,13 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
       return (await res.json()) as T;
     } catch (e: any) {
       lastError = e;
-      if (attempt < 2 && (e?.name === 'AbortError' || e?.message?.includes('502') || e?.message?.includes('503'))) {
-        // Wait 2s and retry once
+      const msg: string = e?.message ?? '';
+      const retryable =
+        e?.name === 'AbortError' ||
+        msg.includes('502') ||
+        msg.includes('503') ||
+        msg.includes('Network request failed');
+      if (attempt < 2 && retryable) {
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }

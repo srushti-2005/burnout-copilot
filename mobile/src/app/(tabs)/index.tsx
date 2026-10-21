@@ -39,15 +39,16 @@ export default function Home() {
   const router = useRouter();
   const { c } = useMindEase();
   const [syncing, setSyncing] = useState(false);
-  const { data, error, loading, reload } = useLoad(async () => {
-    await tracker.flush(true).catch(() => {});
+    const { data, error, loading, reload } = useLoad(async () => {
     const [ses, prof, cp] = await Promise.allSettled([
-      api<any[]>('/sessions?limit=1'),
+      api<any[]>('/sessions?limit=20'),
       api<any>('/auth/profile'),
       fetchCopilotData(),
     ]);
     return {
-      session: ses.status === 'fulfilled' ? ses.value?.[0] : undefined,
+      session: ses.status === 'fulfilled'
+        ? (ses.value?.find((r: any) => r?.device_source === 'mobile') ?? ses.value?.[0])
+        : undefined,
       profile: prof.status === 'fulfilled' ? prof.value : undefined,
       cp: cp.status === 'fulfilled' ? cp.value : null,
       allFailed: [ses, prof, cp].every((r) => r.status === 'rejected'),
@@ -64,8 +65,11 @@ export default function Home() {
   const dash = cp?.dashboard;
   const twin = cp?.twin ?? null;
   const hasData = !!data?.session || (dash?.session_count ?? 0) > 0;
-  const cli = dash?.cli ?? data?.session?.cli_score ?? 0;
-  const category = normCategory(dash?.cli_category) ?? normCategory(data?.session?.risk_level);
+    // Phone's own latest row first, so desktop activity never drives the phone screen.
+  const cli = data?.session?.cli_score ?? dash?.cli ?? 0;
+  const category = normCategory(data?.session?.risk_level) ?? normCategory(dash?.cli_category);
+  const loadPct = Math.round(Math.min(1, Math.max(0, cli)) * 100);
+  const reservePct = 100 - loadPct;
 
   const plan = cp ? buildPlan(cp.dashboard, cp.twin, cp.activity, cp.intervention) : [];
   const lead = plan[0];
@@ -98,22 +102,8 @@ export default function Home() {
             </Body>
           </View>
         </View>
-        <MetricBar
-          icon="pulse"
-          label="Mental load"
-          value={
-            typeof dash?.stress_level === 'string'
-              ? (dash.stress_level.toLowerCase() === 'high' || dash.stress_level.toLowerCase() === 'elevated' ? 75 : dash.stress_level.toLowerCase() === 'medium' || dash.stress_level.toLowerCase() === 'moderate' ? 45 : 22)
-              : (asPct(dash?.stress_level) ?? Math.round(Math.min(1, Math.max(0.08, cli)) * 100))
-          }
-          color={accent.coral}
-        />
-        <MetricBar
-          icon="flash"
-          label="Energy"
-          value={asPct(dash?.energy_level) ?? Math.max(25, Math.min(85, Math.round(84 - (cli * 35))))}
-          color={accent.teal}
-        />
+        <MetricBar icon="pulse" label="Mental load" value={hasData ? loadPct : null} color={accent.coral} />
+        <MetricBar icon="flash" label="Capacity left (estimated)" value={hasData ? reservePct : null} color={accent.teal} />
       </GlassCard>
 
       {/* Plan for today */}

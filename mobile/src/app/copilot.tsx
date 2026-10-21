@@ -10,6 +10,7 @@ import { useRouter, type Href } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { tracker } from '@/lib/tracker';
 
 type Msg = { id: string; from: 'bot' | 'user'; text: string };
 const uid = () => Math.random().toString(36).slice(2);
@@ -141,7 +142,10 @@ export default function Copilot() {
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ paddingBottom: 12 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TextInput
-                value={input} onChangeText={setInput} onSubmitEditing={onSend}
+                value={input} onChangeText={(text) => {
+  tracker.recordKeystroke();
+  setInput(text);
+}} onSubmitEditing={onSend}
                 placeholder="Ask me anything…" placeholderTextColor={c.muted}
                 style={{ flex: 1, backgroundColor: c.card, borderRadius: 999, borderWidth: 1, borderColor: c.border, paddingHorizontal: 16, paddingVertical: 10, color: c.text }}
               />
